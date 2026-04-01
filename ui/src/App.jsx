@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   AlertCircle,
   CheckCircle2,
   Clock,
   Download,
+  FolderOpen,
   HardDrive,
   Menu,
   Network,
@@ -500,12 +501,28 @@ function SettingsView({ settings, onSave }) {
     downloads: { directory: "", max_peers: 200 },
     limits: { download_kbps: 0, upload_kbps: 0 }
   });
+  const dirPickerRef = useRef(null);
 
   if (!settings) return <div className="text-center py-20 text-muted-foreground">Loading settings...</div>;
 
   const handleSave = () => {
     onSave(formData);
     toast.success("Settings saved successfully");
+  };
+
+  const handleDirectoryPicker = () => {
+    dirPickerRef.current?.click();
+  };
+
+  const handleDirectorySelected = (e) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      // Get the directory path from the first file's path
+      const filePath = files[0].webkitRelativePath || files[0].name;
+      const dirPath = filePath.substring(0, filePath.lastIndexOf('/')) || '/';
+      setFormData({ ...formData, downloads: { ...formData.downloads, directory: dirPath } });
+      toast.success("Directory selected");
+    }
   };
 
   return (
@@ -520,10 +537,29 @@ function SettingsView({ settings, onSave }) {
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2 md:col-span-2">
             <label className="text-xs text-muted-foreground">Download Directory</label>
-            <Input
-              value={formData.downloads.directory}
-              onChange={e => setFormData({ ...formData, downloads: { ...formData.downloads, directory: e.target.value } })}
-            />
+            <div className="flex gap-2">
+              <Input
+                value={formData.downloads.directory}
+                onChange={e => setFormData({ ...formData, downloads: { ...formData.downloads, directory: e.target.value } })}
+                placeholder="Select download directory..."
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={handleDirectoryPicker}
+                title="Browse for directory"
+              >
+                <FolderOpen className="size-4" />
+              </Button>
+              <input
+                ref={dirPickerRef}
+                type="file"
+                webkitdirectory=""
+                style={{ display: 'none' }}
+                onChange={handleDirectorySelected}
+              />
+            </div>
           </div>
 
           <div className="space-y-2">
