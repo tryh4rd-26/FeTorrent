@@ -1,0 +1,146 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap');
+@import "tailwindcss";
+@plugin "tailwindcss-animate";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+  --color-background: hsl(18 20% 5%);
+  --color-foreground: hsl(0 0% 96%);
+  --color-card: hsl(18 18% 12%);
+  --color-card-foreground: hsl(0 0% 96%);
+  --color-popover: hsl(18 18% 12%);
+  --color-popover-foreground: hsl(0 0% 96%);
+  --color-primary: hsl(26 87% 52%);
+  --color-primary-foreground: hsl(0 0% 8%);
+  --color-secondary: hsl(18 20% 18%);
+  --color-secondary-foreground: hsl(0 0% 96%);
+  --color-muted: hsl(18 15% 20%);
+  --color-muted-foreground: hsl(18 10% 55%);
+  --color-accent: hsl(26 87% 52%);
+  --color-accent-foreground: hsl(0 0% 8%);
+  --color-destructive: hsl(0 80% 56%);
+  --color-destructive-foreground: hsl(0 0% 96%);
+  --color-border: hsl(18 18% 25%);
+  --color-input: hsl(18 18% 25%);
+  --color-ring: hsl(26 87% 52%);
+  --color-chart-1: hsl(26 87% 52%);
+  --color-chart-2: hsl(140 70% 45%);
+  --color-chart-3: hsl(240 60% 50%);
+  --color-chart-4: hsl(0 80% 56%);
+  --color-chart-5: hsl(45 85% 50%);
+  --radius-lg: 12px;
+  --radius-md: 10px;
+  --radius-sm: 8px;
+}
+
+@layer base {
+  :root {
+    --background: 18 20% 5%;
+    --foreground: 0 0% 96%;
+    --card: 18 18% 12%;
+    --card-foreground: 0 0% 96%;
+    --popover: 18 18% 12%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 26 87% 52%;
+    --primary-foreground: 0 0% 8%;
+    --secondary: 18 20% 18%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 18 15% 20%;
+    --muted-foreground: 18 10% 55%;
+    --accent: 26 87% 52%;
+    --accent-foreground: 0 0% 8%;
+    --destructive: 0 80% 56%;
+    --destructive-foreground: 0 0% 96%;
+    --border: 18 18% 25%;
+    --input: 18 18% 25%;
+    --ring: 26 87% 52%;
+    --radius: 12px;
+    --chart-1: 26 87% 52%;
+    --chart-2: 140 70% 45%;
+    --chart-3: 240 60% 50%;
+    --chart-4: 0 80% 56%;
+    --chart-5: 45 85% 50%;
+  }
+
+  .dark {
+    --background: 18 20% 5%;
+    --foreground: 0 0% 96%;
+    --card: 18 18% 12%;
+    --card-foreground: 0 0% 96%;
+    --primary: 26 87% 52%;
+    --secondary: 18 20% 18%;
+    --muted: 18 15% 20%;
+    --muted-foreground: 18 10% 55%;
+    --border: 18 18% 25%;
+    --ring: 26 87% 52%;
+    --radius: 12px;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+    font-feature-settings: "liga" 1, "calt" 1;
+    background: linear-gradient(135deg, hsl(18 20% 5%) 0%, hsl(18 18% 8%) 100%);
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+}
+
+@keyframes slideInLeft {
+  from { transform: translateX(-100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes slideOutLeft {
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(-100%); opacity: 0; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@layer utilities {
+  .animate-slide-in-left {
+    animation: slideInLeft 0.3s ease-out;
+  }
+  .animate-slide-out-left {
+    animation: slideOutLeft 0.3s ease-in;
+  }
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease-out;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-orange-600/40 rounded-full hover:bg-orange-500/60 transition-colors;
+}
+
+/* Status colors */
+.status-downloading { @apply text-orange-500 border-orange-500/30 bg-orange-500/10; }
+.status-seeding { @apply text-green-500 border-green-500/30 bg-green-500/10; }
+.status-paused { @apply text-slate-400 border-slate-500/30 bg-slate-500/10; }
+.status-error { @apply text-red-500 border-red-500/30 bg-red-500/10; }
+.status-metadata { @apply text-blue-400 border-blue-500/30 bg-blue-500/10; }
+
+.badge-download { @apply text-orange-400; }
+.badge-upload { @apply text-green-400; }
+.badge-idle { @apply text-slate-400; }
