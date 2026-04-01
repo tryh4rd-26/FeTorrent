@@ -8,6 +8,7 @@ use fetorrent_core::engine::AddMode;
 use fetorrent_core::{models::*, Engine};
 use serde_json::json;
 use std::sync::Arc;
+use dirs;
 
 pub type AppState = Arc<Engine>;
 
@@ -50,7 +51,18 @@ pub async fn add_torrent(
         } else if name == "dir" {
             let data = field.text().await.unwrap_or_default();
             if !data.is_empty() {
-                custom_dir = Some(data);
+                // SECURITY: Validate path before using
+                match validate_save_path(&data) {
+                    Ok(validated_path) => {
+                        custom_dir = Some(validated_path.to_string_lossy().to_string());
+                    }
+                    Err(e) => {
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            Json(json!({"error": format!("Invalid path: {}", e)})),
+                        );
+                    }
+                }
             }
         }
     }
@@ -73,6 +85,33 @@ pub async fn add_torrent(
             Json(json!({"error": e.to_string()})),
         ),
     }
+}
+
+/// Validate save directory path for security (no parent dirs, must be relative or user's home)
+fn validate_save_path(path_str: &str) -> Result<std::path::PathBuf, String> {
+    let path = std::path::Path::new(path_str);
+    
+    // Reject absolute paths
+    if path.is_absolute() {
+        return Err("Absolute paths not allowed".into());
+    }
+    
+    // Reject parent directory traversal
+    if path.components().any(|c| c == std::path::Component::ParentDir) {
+        return Err("Path traversal not allowed".into());
+    }
+    
+    // Restrict to user's home/downloads area
+    let user_home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+    let safe_dir = user_home.join("Downloads");
+    let resolved = safe_dir.join(path);
+    
+    // Double check: resolved path must still be under safe_dir
+    if !resolved.starts_with(&safe_dir) {
+        return Err("Invalid path".into());
+    }
+    
+    Ok(resolved)
 }
 
 pub async fn pause_torrent(

@@ -5,9 +5,14 @@
 //!   Bytes/Str:  <len>:<data>        e.g. 4:spam
 //!   List:       l<items>e           e.g. l4:spami42ee
 //!   Dictionary: d<key><val>...e     e.g. d4:spami42ee  (keys must be sorted)
+//!
+//! SECURITY: Added depth limit and allocation bounds checks.
 
 use std::collections::BTreeMap;
 use crate::error::CoreError;
+
+const MAX_DECODE_DEPTH: usize = 100;        // Prevent DoS from nested structures
+const MAX_BYTES_ALLOCATION: usize = 100 * 1024 * 1024; // 100MB limit per value
 
 /// A decoded bencode value.
 #[derive(Debug, Clone, PartialEq)]
@@ -66,11 +71,12 @@ impl BValue {
 pub struct Decoder<'a> {
     buf: &'a [u8],
     pos: usize,
+    depth: usize,  // Track recursion depth
 }
 
 impl<'a> Decoder<'a> {
     pub fn new(buf: &'a [u8]) -> Self {
-        Self { buf, pos: 0 }
+        Self { buf, pos: 0, depth: 0 }
     }
 
     fn peek(&self) -> Option<u8> {
@@ -95,23 +101,34 @@ impl<'a> Decoder<'a> {
     }
 
     pub fn decode(&mut self) -> Result<BValue, CoreError> {
-        match self.peek().ok_or(CoreError::BencodePrematureEnd)? {
+        if self.depth > MAX_DECODE_DEPTH {
+            return Err(CoreError::BencodeInvalid("Depth limit exceeded".into()));
+        }
+        self.depth += 1;
+        let result = match self.peek().ok_or(CoreError::BencodePrematureEnd)? {
             b'i' => self.decode_int(),
             b'l' => self.decode_list(),
             b'd' => self.decode_dict(),
             b'0'..=b'9' => self.decode_bytes(),
             b => Err(CoreError::BencodeInvalid(format!("unexpected byte: {}", b as char))),
-        }
+        };
+        self.depth -= 1;
+        result
     }
 
     fn decode_int(&mut self) -> Result<BValue, CoreError> {
         self.expect(b'i')?;
         let start = self.pos;
-        while self.peek() != Some(b'e') {
-            if self.pos >= self.buf.len() {
-                return Err(CoreError::BencodePrematureEnd);
+        let mut found_e = false;
+        while self.pos < self.buf.len() {
+            if self.buf[self.pos] == b'e' {
+                found_e = true;
+                break;
             }
             self.pos += 1;
+        }
+        if !found_e {
+            return Err(CoreError::BencodePrematureEnd);
         }
         let s = std::str::from_utf8(&self.buf[start..self.pos])
             .map_err(|_| CoreError::BencodeInvalid("int not utf8".into()))?;
@@ -122,8 +139,13 @@ impl<'a> Decoder<'a> {
 
     fn decode_bytes(&mut self) -> Result<BValue, CoreError> {
         let len = self.decode_decimal()?;
+        // SECURITY: Check allocation size
+        if len > MAX_BYTES_ALLOCATION {
+            return Err(CoreError::BencodeInvalid("allocation too large".into()));
+        }
         self.expect(b':')?;
-        let end = self.pos + len;
+        let end = self.pos.checked_add(len)
+            .ok_or(CoreError::BencodeInvalid("position overflow".into()))?;
         if end > self.buf.len() {
             return Err(CoreError::BencodePrematureEnd);
         }
@@ -167,8 +189,6 @@ impl<'a> Decoder<'a> {
         Ok(BValue::Dict(map))
     }
 
-    /// Returns the raw bytes for the value at the current position — used for
-    /// extracting the info dict verbatim for SHA-1 hashing.
     pub fn raw_value_at(&self, start: usize) -> &[u8] {
         &self.buf[start..self.pos]
     }

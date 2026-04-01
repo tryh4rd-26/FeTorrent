@@ -3,7 +3,7 @@ use axum::{
     Router,
 };
 use tower_http::{
-    cors::{CorsLayer, Any},
+    cors::CorsLayer,
     services::ServeDir,
     trace::TraceLayer,
 };
@@ -20,11 +20,16 @@ pub async fn start_server(
     port: u16,
     ui_dir: &std::path::Path,
 ) -> anyhow::Result<()> {
-    // Note: in a real app, restrict CORS to frontend origin. Using Any for dev simplicity here.
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+    // Restrict CORS to localhost (or specify exact origin in production)
+    let cors = CorsLayer::permissive()
+        .allow_origin(axum::http::HeaderValue::from_static("http://localhost:3000"))
+        .allow_methods([
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::DELETE,
+            axum::http::Method::OPTIONS,
+        ])
+        .allow_headers(vec![axum::http::header::CONTENT_TYPE]);
         
     let api_routes = Router::new()
         .route("/torrents", get(list_torrents))

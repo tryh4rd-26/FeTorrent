@@ -16,8 +16,8 @@ use crate::torrent::TorrentFile;
 use crate::torrent_task::{TorrentCommand, TorrentTask};
 
 pub struct Engine {
-    // Shared state accessible via Arc across APIs
-    torrents: Arc<std::sync::Mutex<HashMap<usize, TorrentHandle>>>,
+    // Non-blocking concurrent access to torrents
+    torrents: Arc<dashmap::DashMap<usize, TorrentHandle>>,
     event_tx: broadcast::Sender<TorrentEvent>,
     next_id: std::sync::atomic::AtomicUsize,
 
@@ -44,7 +44,7 @@ impl Engine {
         let (update_tx, mut update_rx) = mpsc::channel(1000);
 
         let engine = Arc::new(Self {
-            torrents: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            torrents: Arc::new(dashmap::DashMap::new()),
             event_tx: tx,
             next_id: std::sync::atomic::AtomicUsize::new(1),
             update_tx,
@@ -56,12 +56,7 @@ impl Engine {
         tokio::spawn(async move {
             while let Some(update) = update_rx.recv().await {
                 let info = {
-                    let mut torrents = match engine_clone.torrents.lock() {
-                        Ok(guard) => guard,
-                        Err(_) => continue,
-                    };
-
-                    if let Some(t) = torrents.get_mut(&update.id) {
+                    if let Some(mut t) = engine_clone.torrents.get_mut(&update.id) {
                         // Apply metadata updates if they arrived
                         if let Some(size) = update.total_size {
                             t.info.total_size = size;
@@ -166,14 +161,8 @@ impl Engine {
             };
 
         // Check if already exists
-        {
-            let torrents = self
-                .torrents
-                .lock()
-                    .map_err(|_| CoreError::Other("torrents state mutex poisoned".into()))?;
-            if torrents.values().any(|entry| entry.info.info_hash == info_hash) {
-                return Err(CoreError::TorrentAlreadyExists);
-            }
+        if self.torrents.iter().any(|entry| entry.value().info.info_hash == info_hash) {
+            return Err(CoreError::TorrentAlreadyExists);
         }
 
         let id = self
@@ -250,81 +239,55 @@ impl Engine {
             info: info.clone(),
             command_tx,
         };
-        {
-            let mut torrents = self
-                .torrents
-                .lock()
-                .map_err(|_| CoreError::Other("torrents state mutex poisoned".into()))?;
-            torrents.insert(id, handle);
-        }
+        self.torrents.insert(id, handle);
 
         Ok(id)
     }
 
     pub fn get_torrents(&self) -> Vec<TorrentInfo> {
-        debug!("engine.get_torrents: acquiring lock");
-        let torrents = match self.torrents.lock() {
-            Ok(guard) => guard,
-            Err(_) => return Vec::new(),
-        };
-        debug!(count = torrents.len(), "engine.get_torrents: lock acquired");
-
-        let mut list: Vec<_> = torrents.values().map(|t| t.info.clone()).collect();
+        debug!("engine.get_torrents: fetching torrents");
+        let mut list: Vec<_> = self.torrents.iter().map(|ref_multi| ref_multi.value().info.clone()).collect();
         // Sort by ID to ensure stable ordering
         list.sort_by_key(|t| t.id);
+        debug!(count = list.len(), "engine.get_torrents: completed");
         list
     }
 
     pub fn get_torrent(&self, id: usize) -> Result<TorrentInfo> {
-        let torrents = self
-            .torrents
-            .lock()
-            .map_err(|_| CoreError::Other("torrents state mutex poisoned".into()))?;
-
-        torrents
+        self.torrents
             .get(&id)
-            .map(|t| t.info.clone())
+            .map(|t| t.value().info.clone())
             .ok_or(CoreError::TorrentNotFound(id))
     }
 
     pub async fn pause_torrent(&self, id: usize) -> Result<()> {
-        let mut torrents = self
-            .torrents
-            .lock()
-                .map_err(|_| CoreError::Other("torrents state mutex poisoned".into()))?;
-        let t = torrents.get_mut(&id).ok_or(CoreError::TorrentNotFound(id))?;
+        let mut t = self.torrents.get_mut(&id).ok_or(CoreError::TorrentNotFound(id))?;
         t.info.status = TorrentStatus::Paused;
+        let info = t.info.clone();
+        drop(t); // Release the lock before sending broadcast
         let _ = self.event_tx.send(TorrentEvent::TorrentUpdated {
-            torrent: t.info.clone(),
+            torrent: info,
         });
         Ok(())
     }
 
     pub async fn resume_torrent(&self, id: usize) -> Result<()> {
-        let mut torrents = self
-            .torrents
-            .lock()
-                .map_err(|_| CoreError::Other("torrents state mutex poisoned".into()))?;
-        let t = torrents.get_mut(&id).ok_or(CoreError::TorrentNotFound(id))?;
+        let mut t = self.torrents.get_mut(&id).ok_or(CoreError::TorrentNotFound(id))?;
         if t.info.status == TorrentStatus::Paused
             || matches!(t.info.status, TorrentStatus::Error(_))
         {
             t.info.status = TorrentStatus::Downloading;
+            let info = t.info.clone();
+            drop(t); // Release the lock before sending broadcast
             let _ = self.event_tx.send(TorrentEvent::TorrentUpdated {
-                torrent: t.info.clone(),
+                torrent: info,
             });
         }
         Ok(())
     }
 
     pub async fn remove_torrent(&self, id: usize, delete_files: bool) -> Result<()> {
-        let handle = {
-            let mut torrents = self
-                .torrents
-                .lock()
-                    .map_err(|_| CoreError::Other("torrents state mutex poisoned".into()))?;
-            torrents.remove(&id).ok_or(CoreError::TorrentNotFound(id))?
-        };
+        let handle = self.torrents.remove(&id).ok_or(CoreError::TorrentNotFound(id))?.1;
         let _ = self.event_tx.send(TorrentEvent::TorrentRemoved { id });
 
         if delete_files {
@@ -343,14 +306,10 @@ impl Engine {
 
     pub fn get_global_stats(&self) -> GlobalStats {
         let mut s = GlobalStats::default();
-        debug!("engine.get_global_stats: acquiring lock");
-        let torrents = match self.torrents.lock() {
-            Ok(guard) => guard,
-            Err(_) => return s,
-        };
-        debug!(count = torrents.len(), "engine.get_global_stats: lock acquired");
-
-        for t in torrents.values() {
+        debug!("engine.get_global_stats: computing stats");
+        
+        for ref_multi in self.torrents.iter() {
+            let t = ref_multi.value();
             let info = &t.info;
             s.dl_speed += info.dl_speed;
             s.ul_speed += info.ul_speed;
@@ -370,6 +329,7 @@ impl Engine {
         if s.total_downloaded > 0 {
             s.ratio = s.total_uploaded as f32 / s.total_downloaded as f32;
         }
+        debug!(torrents = self.torrents.len(), "engine.get_global_stats: completed");
         s
     }
 
