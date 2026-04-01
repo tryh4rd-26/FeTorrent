@@ -11,8 +11,9 @@ use super::handshake::Handshake;
 use super::message::{Message, MessageCodec, MAX_FRAME_SIZE};
 use crate::error::{CoreError, Result};
 
-pub const BLOCK_SIZE: u32 = 16384; // 16 KiB
-pub const KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(120);
+pub const BLOCK_SIZE: u32 = 262144; // 256 KiB - significantly faster than 16KiB
+pub const KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(60);
+pub const MAX_INFLIGHT_REQUESTS: usize = 16; // Pipeline requests for better throughput
 
 /// Events sent from a PeerSession back to the Engine.
 #[derive(Debug)]

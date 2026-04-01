@@ -299,13 +299,14 @@ export default function App() {
 
                   {/* Torrents Table */}
                   <section className="overflow-hidden rounded-lg border border-border/60 bg-card/50 backdrop-blur">
-                    <div className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_130px] gap-3 border-b border-border/40 px-5 py-4 bg-muted/20 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    <div className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_1fr_130px] gap-3 border-b border-border/40 px-5 py-4 bg-muted/20 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                       <span>Name</span>
                       <span>Progress</span>
                       <span>Download</span>
                       <span>Upload</span>
                       <span>Peers</span>
                       <span>Status</span>
+                      <span>ETA</span>
                       <span className="text-right">Actions</span>
                     </div>
 
@@ -422,7 +423,7 @@ function TorrentRow({ torrent, alternate }) {
 
   return (
     <div className={cn(
-      "grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_130px] gap-3 items-center px-5 py-4 transition-all duration-200 hover:bg-muted/30",
+      "grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_1fr_130px] gap-3 items-center px-5 py-4 transition-all duration-200 hover:bg-muted/30",
       alternate && "bg-muted/15"
     )}>
       <div className="min-w-0">
@@ -463,6 +464,10 @@ function TorrentRow({ torrent, alternate }) {
           {StatusIcon && <StatusIcon className="mr-1 size-3" />}
           {statusLabel}
         </Badge>
+      </div>
+
+      <div className="text-xs font-mono tabular-nums text-orange-300">
+        {isSeeding ? '--' : formatETA(eta_secs)}
       </div>
 
       <div className="flex justify-end gap-1">

@@ -27,10 +27,11 @@ impl PeerManager {
         max_connections: usize,
         event_tx: mpsc::Sender<PeerEvent>,
     ) -> Self {
+        let max_conns = (max_connections).max(200).min(500); // Force 200-500 concurrent peers
         Self {
             info_hash,
             peer_id,
-            max_connections,
+            max_connections: max_conns,
             active_peers: HashSet::new(),
             candidate_peers: VecDeque::new(),
             event_tx,

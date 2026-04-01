@@ -91,7 +91,7 @@ impl TorrentTask {
         let (event_tx, event_rx) = mpsc::channel(1000);
         let piece_manager =
             torrent.map(|t| PieceManager::new(t.piece_length, t.total_size, t.pieces.clone()));
-        let peer_manager = PeerManager::new(info_hash, peer_id, 50, event_tx.clone());
+        let peer_manager = PeerManager::new(info_hash, peer_id, 300, event_tx.clone());
 
         let (left, name) = if let Some(t) = torrent {
             (t.total_size, t.name.clone())
@@ -384,7 +384,8 @@ impl TorrentTask {
         if let Some(idx) = piece_index {
             if let (Some(active), Some(pm)) = (self.active_pieces.get(&idx), &self.piece_manager) {
                 if let Some(tx) = self.active_peers.get(&addr) {
-                    let missing = active.get_missing_blocks(pm, 5);
+                    // Increased from 5 to 16 for aggressive pipelining
+                    let missing = active.get_missing_blocks(pm, 16);
                     for (begin, length) in missing {
                         let _ = tx
                             .send(PeerCommand::Request {

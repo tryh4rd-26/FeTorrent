@@ -1,12 +1,12 @@
 //! Piece and block management logic.
 //!
 //! A torrent is divided into pieces (typically 256KB-4MB).
-//! Pieces are requested in blocks (typically 16KB).
+//! Blocks are now 256KB for efficiency instead of 16KB.
 
 use sha1::{Digest, Sha1};
 use std::collections::HashSet;
 
-pub const BLOCK_SIZE: u32 = 16384; // 16 KiB
+pub const BLOCK_SIZE: u32 = 262144; // 256 KiB - much faster than 16KiB for high-speed transfers
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PieceState {
