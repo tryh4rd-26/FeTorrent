@@ -1,0 +1,45 @@
+# Rust
+/target
+Cargo.lock
+**/*.rs.bk
+*.pdb
+*.swp
+*.swo
+*~
+
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+.npm
+.eslintcache
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.sln.iml
+*.vscode-settings
+.DS_Store
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+.AppleDouble
+.LSOverride
+
+# Test downloads - DO NOT PUSH
+test_downloads/
+downloads/
+*.torrent
+
+# Misc
+.cache/
+*.log

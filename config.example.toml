@@ -1,0 +1,22 @@
+# FeTorrent Configuration File
+# 
+# By default, FeTorrent looks for this file in ~/.config/fetorrent/config.toml
+# You can override these using command-line arguments when starting the daemon.
+
+[server]
+# Port for the REST API and the Web UI
+port = 6977
+# Bind address (use 0.0.0.0 to allow remote connections, 127.0.0.1 for local only)
+bind = "127.0.0.1"
+
+[downloads]
+# Default download directory (supports ~ for home folder)
+directory = "~/Downloads/FeTorrent"
+# Max number of peers per torrent
+max_peers = 200
+
+[limits]
+# Global download limit in KB/s (0 = unlimited)
+download_kbps = 0
+# Global upload limit in KB/s (0 = unlimited)
+upload_kbps = 0

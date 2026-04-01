@@ -1,0 +1,77 @@
+[workspace]
+members = [
+    "crates/core",
+    "crates/api",
+    "crates/cli",
+    "crates/daemon",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["FeTorrent Contributors"]
+license = "MIT"
+repository = "https://github.com/fetorrent/fetorrent"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+
+# Web framework
+axum = { version = "0.7", features = ["ws", "multipart"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "fs", "trace"] }
+hyper = { version = "1", features = ["full"] }
+
+# HTTP client (for tracker communication)
+reqwest = { version = "0.12", features = ["json"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_urlencoded = "0.7"
+
+# Config
+config = "0.14"
+toml = "0.8"
+
+# CLI
+clap = { version = "4", features = ["derive", "color", "env"] }
+colored = "2"
+indicatif = "0.17"
+comfy-table = "7"
+
+# Crypto / hashing
+sha1 = "0.10"
+hex = "0.4"
+rand = "0.8"
+
+# Networking / async primitives
+bytes = "1"
+futures = "0.3"
+async-trait = "0.1"
+
+# Error handling
+thiserror = "1"
+anyhow = "1"
+
+# Tracing / logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Utilities
+url = "2"
+urlencoding = "2"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+dashmap = "5"
+once_cell = "1"
+dirs = "5"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true

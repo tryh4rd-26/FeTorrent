@@ -1,0 +1,16 @@
+[package]
+name = "fetorrent-daemon"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+fetorrent-core = { path = "../core" }
+fetorrent-api = { path = "../api" }
+
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+dirs = { workspace = true }
+tracing-appender = "0.2.4"
