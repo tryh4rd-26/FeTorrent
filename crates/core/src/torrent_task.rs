@@ -496,7 +496,10 @@ impl TorrentTask {
     }
 
     async fn announce_all(&mut self, event: AnnounceEvent) {
-        for tracker in &mut self.trackers {
+        use futures::future::join_all;
+
+        // Announce to all trackers in parallel for faster peer discovery
+        let handles: Vec<_> = self.trackers.iter_mut().map(|tracker| {
             let req = AnnounceRequest {
                 info_hash: self.info_hash,
                 peer_id: self.peer_id,
@@ -505,16 +508,18 @@ impl TorrentTask {
                 downloaded: self.downloaded,
                 left: self.left,
                 event: event.clone(),
-                num_want: 50,
+                num_want: 200,  // Request more peers initially for faster connection
             };
+            tracker.announce(req)
+        }).collect();
 
-            let result = tracker.announce(req).await;
+        let results = join_all(handles).await;
 
+        for result in results {
             match result {
                 Ok(resp) => {
                     info!(
-                        "Tracker {} returned {} peers (Seeds: {}, Leechers: {})",
-                        tracker.url(),
+                        "Tracker returned {} peers (Seeds: {}, Leechers: {})",
                         resp.peers.len(),
                         resp.seeders,
                         resp.leechers
@@ -524,7 +529,7 @@ impl TorrentTask {
                     self.peer_manager.add_candidates(resp.peers);
                 }
                 Err(e) => {
-                    error!("Tracker {} failed: {}", tracker.url(), e);
+                    error!("Tracker failed: {}", e);
                 }
             }
         }
