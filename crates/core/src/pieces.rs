@@ -1,20 +1,19 @@
 //! Piece and block management logic.
 //!
 //! A torrent is divided into pieces (typically 256KB-4MB).
-//! Blocks are now 256KB for efficiency instead of 16KB.
+//! Blocks are requested at protocol-friendly 16KB.
 
 use sha1::{Digest, Sha1};
-use std::collections::HashSet;
 
-pub const BLOCK_SIZE: u32 = 262144; // 256 KiB - much faster than 16KiB for high-speed transfers
+pub const BLOCK_SIZE: u32 = 16 * 1024; // 16 KiB per request for broad peer compatibility
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PieceState {
     Missing,
     Downloading,
-    Complete,     // All blocks received, hash not yet verified (or hashing now)
-    Verified,     // Hash matched
-    Failed,       // Hash mismatched, ready to retry
+    Complete, // All blocks received, hash not yet verified (or hashing now)
+    Verified, // Hash matched
+    Failed,   // Hash mismatched, ready to retry
 }
 
 pub struct PieceManager {
@@ -22,10 +21,10 @@ pub struct PieceManager {
     total_size: u64,
     pub num_pieces: u32,
     hashes: Vec<[u8; 20]>,
-    
+
     // Status tracking
     pub states: Vec<PieceState>,
-    
+
     // A bitfield mapping: have is 1, missing/other is 0.
     // Kept up-to-date with Verified state.
     pub bitfield: Vec<u8>,
@@ -35,7 +34,7 @@ impl PieceManager {
     pub fn new(piece_length: u32, total_size: u64, hashes: Vec<[u8; 20]>) -> Self {
         let num_pieces = hashes.len() as u32;
         let bf_len = ((num_pieces as f32) / 8.0).ceil() as usize;
-        
+
         Self {
             piece_length,
             total_size,
@@ -81,14 +80,14 @@ impl PieceManager {
         if bf.len() != self.bitfield.len() {
             return false;
         }
-        
+
         // Check all but the last byte (they must be 0xFF)
-        for i in 0..bf.len().saturating_sub(1) {
-            if bf[i] != 0xFF {
+        for byte in bf.iter().take(bf.len().saturating_sub(1)) {
+            if *byte != 0xFF {
                 return false;
             }
         }
-        
+
         // Handle the last byte separately due to possible padding
         if let Some(&last_byte) = bf.last() {
             let num_bits_last_byte = self.num_pieces % 8;
@@ -99,7 +98,7 @@ impl PieceManager {
                 return (last_byte & mask) == mask;
             }
         }
-        
+
         true
     }
 
@@ -132,7 +131,7 @@ impl PieceManager {
 
     pub fn get_num_blocks(&self, index: u32) -> u32 {
         let len = self.get_piece_length(index);
-        (len + BLOCK_SIZE - 1) / BLOCK_SIZE
+        len.div_ceil(BLOCK_SIZE)
     }
 
     pub fn get_block_length(&self, piece_index: u32, block_index: u32) -> u32 {
@@ -163,7 +162,8 @@ impl PieceManager {
                 // Check if peer has it
                 let byte_idx = (i / 8) as usize;
                 let bit_idx = 7 - (i % 8);
-                if byte_idx < peer_bitfield.len() && (peer_bitfield[byte_idx] & (1 << bit_idx)) != 0 {
+                if byte_idx < peer_bitfield.len() && (peer_bitfield[byte_idx] & (1 << bit_idx)) != 0
+                {
                     return Some(i);
                 }
             }
@@ -184,7 +184,7 @@ pub struct ActivePiece {
 
 impl ActivePiece {
     pub fn new(index: u32, piece_len: u32) -> Self {
-        let total_blocks = (piece_len + BLOCK_SIZE - 1) / BLOCK_SIZE;
+        let total_blocks = piece_len.div_ceil(BLOCK_SIZE);
         Self {
             index,
             total_blocks,
@@ -213,7 +213,11 @@ impl ActivePiece {
     }
 
     /// Returns the missing blocks (begin offset, length) pairs, limited to `max_requests`.
-    pub fn get_missing_blocks(&self, piece_manager: &PieceManager, max_requests: usize) -> Vec<(u32, u32)> {
+    pub fn get_missing_blocks(
+        &self,
+        piece_manager: &PieceManager,
+        max_requests: usize,
+    ) -> Vec<(u32, u32)> {
         let mut missing = Vec::new();
         for i in 0..self.total_blocks {
             if !self.block_mask[i as usize] {

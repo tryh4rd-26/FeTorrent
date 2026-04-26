@@ -8,6 +8,12 @@ export const resumeTorrent = async (id) => fetch(`/api/v1/torrents/${id}/resume`
 export const removeTorrent = async (id) => fetch(`/api/v1/torrents/${id}`, { method: 'DELETE' });
 export const addTorrent = async (formData) => fetch('/api/v1/torrents/add', { method: 'POST', body: formData });
 export const fetchSettings = async () => (await fetch('/api/v1/settings')).json();
+export const selectDirectory = async () => {
+  const res = await fetch('/api/v1/select-directory');
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Directory selection failed');
+  return data.path;
+};
 export const updateSettings = async (settings) => fetch('/api/v1/settings', { 
   method: 'POST', 
   headers: { 'Content-Type': 'application/json' },

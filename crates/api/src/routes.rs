@@ -4,11 +4,11 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use dirs;
 use fetorrent_core::engine::AddMode;
 use fetorrent_core::{models::*, Engine};
 use serde_json::json;
 use std::sync::Arc;
-use dirs;
 
 pub type AppState = Arc<Engine>;
 
@@ -70,7 +70,9 @@ pub async fn add_torrent(
     let result = if let Some(m) = magnet {
         engine.add_torrent(AddMode::Magnet(m), custom_dir).await
     } else if let Some(b) = file_bytes {
-        engine.add_torrent(AddMode::TorrentFile(b), custom_dir).await
+        engine
+            .add_torrent(AddMode::TorrentFile(b), custom_dir)
+            .await
     } else {
         return (
             StatusCode::BAD_REQUEST,
@@ -87,31 +89,68 @@ pub async fn add_torrent(
     }
 }
 
-/// Validate save directory path for security (no parent dirs, must be relative or user's home)
+/// Validate save directory path.
+/// Absolute paths and ~-prefixed paths are accepted.
+/// Relative paths are resolved under ~/Downloads.
 fn validate_save_path(path_str: &str) -> Result<std::path::PathBuf, String> {
-    let path = std::path::Path::new(path_str);
-    
-    // Reject absolute paths
-    if path.is_absolute() {
-        return Err("Absolute paths not allowed".into());
+    let trimmed = path_str.trim();
+    if trimmed.is_empty() {
+        return Err("Path cannot be empty".into());
     }
-    
+
+    let path = if let Some(rest) = trimmed.strip_prefix("~/") {
+        let home = dirs::home_dir().ok_or_else(|| "Cannot resolve home directory".to_string())?;
+        home.join(rest)
+    } else {
+        std::path::PathBuf::from(trimmed)
+    };
+
+    if path.is_absolute() {
+        return Ok(path);
+    }
+
     // Reject parent directory traversal
-    if path.components().any(|c| c == std::path::Component::ParentDir) {
+    if path
+        .components()
+        .any(|c| c == std::path::Component::ParentDir)
+    {
         return Err("Path traversal not allowed".into());
     }
-    
+
     // Restrict to user's home/downloads area
     let user_home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
     let safe_dir = user_home.join("Downloads");
-    let resolved = safe_dir.join(path);
-    
+    let resolved = safe_dir.join(&path);
+
     // Double check: resolved path must still be under safe_dir
     if !resolved.starts_with(&safe_dir) {
         return Err("Invalid path".into());
     }
-    
+
     Ok(resolved)
+}
+
+pub async fn select_directory() -> impl IntoResponse {
+    let chosen = tokio::task::spawn_blocking(|| {
+        let start_dir = dirs::download_dir()
+            .or_else(dirs::home_dir)
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+
+        rfd::FileDialog::new().set_directory(start_dir).pick_folder()
+    })
+    .await;
+
+    match chosen {
+        Ok(Some(path)) => (StatusCode::OK, Json(json!({ "path": path.to_string_lossy() }))),
+        Ok(None) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "Directory selection cancelled" })),
+        ),
+        Err(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "Failed to open directory picker" })),
+        ),
+    }
 }
 
 pub async fn pause_torrent(

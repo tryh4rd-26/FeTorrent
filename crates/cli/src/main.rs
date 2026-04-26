@@ -1,14 +1,20 @@
+use anyhow::Context;
 use clap::{Parser, Subcommand};
 use colored::Colorize;
-use comfy_table::{Table, Cell, Color, Attribute, presets::NOTHING, modifiers::UTF8_ROUND_CORNERS};
-use fetorrent_core::models::{GlobalStats, TorrentInfo, TorrentStatus};
+use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::NOTHING, Attribute, Cell, Color, Table};
 use fetorrent_core::config::FeConfig;
-use anyhow::Context;
-use reqwest::{Client, multipart};
-use std::time::Duration;
+use fetorrent_core::models::{GlobalStats, TorrentInfo, TorrentStatus};
+use reqwest::{multipart, Client};
+use serde::Deserialize;
+use std::io::{self, BufRead, IsTerminal, Write};
 use std::process::{Command, Stdio};
-use std::io::{self, BufRead};
-use tracing::{debug, info, warn};
+use std::time::Duration;
+use tracing::warn;
+
+#[derive(Debug, Deserialize)]
+struct SelectDirectoryResponse {
+    path: String,
+}
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -17,7 +23,12 @@ struct Cli {
     command: Commands,
 
     /// API URL (default: http://127.0.0.1:6977/api/v1)
-    #[arg(short, long, global = true, default_value = "http://127.0.0.1:6977/api/v1")]
+    #[arg(
+        short,
+        long,
+        global = true,
+        default_value = "http://127.0.0.1:6977/api/v1"
+    )]
     url: String,
 
     /// Output raw JSON instead of pretty tables
@@ -39,21 +50,13 @@ enum Commands {
         watch: bool,
     },
     /// Info on a specific torrent
-    Info {
-        id: usize,
-    },
+    Info { id: usize },
     /// Pause a torrent
-    Pause {
-        id: usize,
-    },
+    Pause { id: usize },
     /// Resume a torrent
-    Resume {
-        id: usize,
-    },
+    Resume { id: usize },
     /// Remove a torrent
-    Remove {
-        id: usize,
-    },
+    Remove { id: usize },
     /// Show global statistics
     Stats,
     /// Launch the daemon process in the background
@@ -105,33 +108,42 @@ async fn main() -> anyhow::Result<()> {
 
     match &cli.command {
         Commands::Add { target, dir } => {
+            let chosen_dir = resolve_add_directory(&client, &cli.url, dir.clone()).await?;
+
             let res = if target.starts_with("magnet:") {
                 let mut form = multipart::Form::new().text("magnet", target.clone());
-                if let Some(d) = dir {
+                if let Some(d) = &chosen_dir {
                     form = form.text("dir", d.clone());
                 }
                 send_request(
-                    client.post(format!("{}/torrents/add", cli.url)).multipart(form),
+                    client
+                        .post(format!("{}/torrents/add", cli.url))
+                        .multipart(form),
                     "Add torrent (magnet)",
                     &cli.url,
                     true,
-                ).await?
+                )
+                .await?
             } else {
                 let file_path = std::path::Path::new(target);
                 let bytes = std::fs::read(file_path)?;
-                let part = multipart::Part::bytes(bytes).file_name(file_path.file_name().unwrap().to_string_lossy().to_string());
+                let part = multipart::Part::bytes(bytes)
+                    .file_name(file_path.file_name().unwrap().to_string_lossy().to_string());
                 let mut form = multipart::Form::new().part("file", part);
-                if let Some(d) = dir {
+                if let Some(d) = &chosen_dir {
                     form = form.text("dir", d.clone());
                 }
                 send_request(
-                    client.post(format!("{}/torrents/add", cli.url)).multipart(form),
+                    client
+                        .post(format!("{}/torrents/add", cli.url))
+                        .multipart(form),
                     "Add torrent (file)",
                     &cli.url,
                     true,
-                ).await?
+                )
+                .await?
             };
-            
+
             if cli.json {
                 println!("{}", res.text().await?);
             } else if res.status().is_success() {
@@ -149,7 +161,8 @@ async fn main() -> anyhow::Result<()> {
                         "List torrents",
                         &cli.url,
                         true,
-                    ).await?;
+                    )
+                    .await?;
                     let torrents: Vec<TorrentInfo> = res.json().await?;
                     print_torrents(&torrents);
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -160,7 +173,8 @@ async fn main() -> anyhow::Result<()> {
                     "List torrents",
                     &cli.url,
                     true,
-                ).await?;
+                )
+                .await?;
                 if cli.json {
                     println!("{}", res.text().await?);
                 } else {
@@ -175,7 +189,8 @@ async fn main() -> anyhow::Result<()> {
                 "Get torrent info",
                 &cli.url,
                 true,
-            ).await?;
+            )
+            .await?;
             println!("{}", res.text().await?);
         }
         Commands::Pause { id } => {
@@ -184,7 +199,8 @@ async fn main() -> anyhow::Result<()> {
                 "Pause torrent",
                 &cli.url,
                 true,
-            ).await?;
+            )
+            .await?;
             cmd_result("Pause", res, cli.json).await?;
         }
         Commands::Resume { id } => {
@@ -193,7 +209,8 @@ async fn main() -> anyhow::Result<()> {
                 "Resume torrent",
                 &cli.url,
                 true,
-            ).await?;
+            )
+            .await?;
             cmd_result("Resume", res, cli.json).await?;
         }
         Commands::Remove { id } => {
@@ -202,7 +219,8 @@ async fn main() -> anyhow::Result<()> {
                 "Remove torrent",
                 &cli.url,
                 true,
-            ).await?;
+            )
+            .await?;
             cmd_result("Remove", res, cli.json).await?;
         }
         Commands::Stats => {
@@ -211,7 +229,8 @@ async fn main() -> anyhow::Result<()> {
                 "Get stats",
                 &cli.url,
                 true,
-            ).await?;
+            )
+            .await?;
             if cli.json {
                 println!("{}", res.text().await?);
             } else {
@@ -246,24 +265,27 @@ async fn main() -> anyhow::Result<()> {
                 println!("Starting FeTorrent daemon in background...");
                 start_daemon_for_url(&cli.url)?;
                 println!("{}", "Daemon initialized.".green().bold());
-                
+
                 let ui_url = cli.url.replace("/api/v1", "");
                 println!("Web UI: {}", ui_url.bright_cyan().underline());
                 let _ = webbrowser::open(&ui_url);
-                
+
                 println!("Use 'fetorrent log --live' to see daemon output.");
             }
         }
         Commands::Log { live, lines } => {
             let log_path = FeConfig::resolve_log_path();
             if !log_path.exists() {
-                anyhow::bail!("Log file not found at {}. Is the daemon running?", log_path.display());
+                anyhow::bail!(
+                    "Log file not found at {}. Is the daemon running?",
+                    log_path.display()
+                );
             }
 
             if *live {
-                let mut file = std::fs::File::open(&log_path)?;
-                let mut reader = io::BufReader::new(file);
-                
+                let file = std::fs::File::open(&log_path)?;
+                let reader = io::BufReader::new(file);
+
                 // Seek to end minus some lines initially
                 // For simplicity, we just print the last N lines then follow
                 let all_lines: Vec<String> = reader.lines().map_while(Result::ok).collect();
@@ -280,7 +302,7 @@ async fn main() -> anyhow::Result<()> {
                         let mut f = std::fs::File::open(&log_path)?;
                         use std::io::Seek;
                         f.seek(io::SeekFrom::Start(last_pos))?;
-                        let mut r = io::BufReader::new(f);
+                        let r = io::BufReader::new(f);
                         for line in r.lines() {
                             println!("{}", line?);
                         }
@@ -304,11 +326,14 @@ async fn main() -> anyhow::Result<()> {
             };
 
             if host != "127.0.0.1" && host != "localhost" {
-                anyhow::bail!("Kill command can only be used on local daemon (host is {})", host);
+                anyhow::bail!(
+                    "Kill command can only be used on local daemon (host is {})",
+                    host
+                );
             }
 
             println!("Stopping FeTorrent daemon on port {}...", port);
-            
+
             // Cross-platform port kill attempt using lsof on unix-like systems
             let output = Command::new("lsof")
                 .arg("-t")
@@ -354,14 +379,15 @@ async fn send_request(
     url: &str,
     allow_auto_start: bool,
 ) -> anyhow::Result<reqwest::Response> {
-    let retry_req = if allow_auto_start { req.try_clone() } else { None };
+    let retry_req = if allow_auto_start {
+        req.try_clone()
+    } else {
+        None
+    };
     let response = match req.send().await {
         Ok(response) => response,
         Err(err) => {
-            if allow_auto_start
-                && can_auto_start_daemon(url)
-                && retry_req.is_some()
-            {
+            if allow_auto_start && can_auto_start_daemon(url) && retry_req.is_some() {
                 if let Err(start_err) = start_daemon_for_url(url) {
                     warn!(error = %start_err, "auto-start failed");
                 } else if wait_for_daemon(url, Duration::from_secs(30)).await {
@@ -394,7 +420,10 @@ async fn ensure_daemon_available(api_url: &str) -> anyhow::Result<()> {
         return Ok(());
     };
 
-    if tokio::net::TcpStream::connect((host.as_str(), port)).await.is_ok() {
+    if tokio::net::TcpStream::connect((host.as_str(), port))
+        .await
+        .is_ok()
+    {
         return Ok(());
     }
 
@@ -423,15 +452,13 @@ fn daemon_endpoint_from_api_url(api_url: &str) -> Option<(String, u16)> {
 }
 
 fn start_daemon_for_url(api_url: &str) -> anyhow::Result<()> {
-    let (_, port) = daemon_endpoint_from_api_url(api_url)
-        .context("unsupported URL for auto-start")?;
+    let (_, port) =
+        daemon_endpoint_from_api_url(api_url).context("unsupported URL for auto-start")?;
 
     let port_arg = port.to_string();
     let try_spawn = |program: &str, args: &[&str]| -> std::io::Result<()> {
         let mut cmd = Command::new(program);
-        cmd.args(args)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+        cmd.args(args).stdout(Stdio::null()).stderr(Stdio::null());
         cmd.spawn().map(|_| ())
     };
 
@@ -468,7 +495,10 @@ async fn wait_for_daemon(api_url: &str, timeout: Duration) -> bool {
     };
     let deadline = std::time::Instant::now() + timeout;
     while std::time::Instant::now() < deadline {
-        if tokio::net::TcpStream::connect((host.as_str(), port)).await.is_ok() {
+        if tokio::net::TcpStream::connect((host.as_str(), port))
+            .await
+            .is_ok()
+        {
             return true;
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -478,6 +508,67 @@ async fn wait_for_daemon(api_url: &str, timeout: Duration) -> bool {
 
 fn should_print_banner(command: &Commands, json: bool) -> bool {
     !json && matches!(command, Commands::Run { .. })
+}
+
+async fn resolve_add_directory(
+    client: &Client,
+    api_url: &str,
+    provided_dir: Option<String>,
+) -> anyhow::Result<Option<String>> {
+    if let Some(dir) = provided_dir {
+        return Ok(Some(dir));
+    }
+
+    if !std::io::stdin().is_terminal() {
+        return Ok(None);
+    }
+
+    println!("Choose download location:");
+    println!("  1) Use default from settings");
+    println!("  2) Pick folder from file manager");
+    println!("  3) Enter custom path");
+    print!("Select option [1/2/3] (default 1): ");
+    std::io::stdout().flush()?;
+
+    let mut option = String::new();
+    std::io::stdin().read_line(&mut option)?;
+
+    match option.trim() {
+        "2" => {
+            let res = send_request(
+                client.get(format!("{}/select-directory", api_url)),
+                "Select directory",
+                api_url,
+                true,
+            )
+            .await?;
+
+            if !res.status().is_success() {
+                let msg = res
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Directory selection failed".to_string());
+                println!("{}", format!("Falling back to default directory: {}", msg).yellow());
+                return Ok(None);
+            }
+
+            let payload: SelectDirectoryResponse = res.json().await?;
+            Ok(Some(payload.path))
+        }
+        "3" => {
+            print!("Enter download path: ");
+            std::io::stdout().flush()?;
+            let mut path = String::new();
+            std::io::stdin().read_line(&mut path)?;
+            let trimmed = path.trim();
+            if trimmed.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(trimmed.to_string()))
+            }
+        }
+        _ => Ok(None),
+    }
 }
 
 fn init_logging() {
@@ -500,21 +591,33 @@ fn print_torrents(torrents: &[TorrentInfo]) {
         .load_preset(NOTHING)
         .apply_modifier(UTF8_ROUND_CORNERS)
         .set_header(vec![
-            Cell::new("ID").add_attribute(Attribute::Bold).fg(Color::DarkGrey),
+            Cell::new("ID")
+                .add_attribute(Attribute::Bold)
+                .fg(Color::DarkGrey),
             Cell::new("Name").add_attribute(Attribute::Bold),
             Cell::new("Progress").add_attribute(Attribute::Bold),
             Cell::new("Status").add_attribute(Attribute::Bold),
-            Cell::new("Seeds").add_attribute(Attribute::Bold).fg(Color::Green),
-            Cell::new("Leechers").add_attribute(Attribute::Bold).fg(Color::Yellow),
-            Cell::new("Total Peers").add_attribute(Attribute::Bold).fg(Color::Cyan),
+            Cell::new("Seeds")
+                .add_attribute(Attribute::Bold)
+                .fg(Color::Green),
+            Cell::new("Leechers")
+                .add_attribute(Attribute::Bold)
+                .fg(Color::Yellow),
+            Cell::new("Total Peers")
+                .add_attribute(Attribute::Bold)
+                .fg(Color::Cyan),
             Cell::new("Size").add_attribute(Attribute::Bold),
             Cell::new("Speed (DL/UL)").add_attribute(Attribute::Bold),
-            Cell::new("ETA").add_attribute(Attribute::Bold).fg(Color::Yellow),
+            Cell::new("ETA")
+                .add_attribute(Attribute::Bold)
+                .fg(Color::Yellow),
         ]);
 
     for t in torrents {
         let (prog_color, stat_color) = match t.status {
-            TorrentStatus::Downloading | TorrentStatus::DownloadingMetadata => (Color::Cyan, Color::Cyan),
+            TorrentStatus::Downloading | TorrentStatus::DownloadingMetadata => {
+                (Color::Cyan, Color::Cyan)
+            }
             TorrentStatus::Seeding | TorrentStatus::Finished => (Color::Green, Color::Green),
             TorrentStatus::Queued | TorrentStatus::Checking => (Color::Yellow, Color::Yellow),
             TorrentStatus::Paused => (Color::DarkGrey, Color::DarkGrey),
@@ -530,7 +633,11 @@ fn print_torrents(torrents: &[TorrentInfo]) {
             Cell::new(t.num_leechers).fg(Color::Yellow),
             Cell::new(t.num_peers).fg(Color::Cyan),
             Cell::new(format_bytes(t.total_size)),
-            Cell::new(format!("{} ↓ / {} ↑", format_bytes(t.dl_speed), format_bytes(t.ul_speed))),
+            Cell::new(format!(
+                "{} ↓ / {} ↑",
+                format_bytes(t.dl_speed),
+                format_bytes(t.ul_speed)
+            )),
             Cell::new(format_eta(t.eta_secs)).fg(Color::Yellow),
         ]);
     }
@@ -577,6 +684,11 @@ fn format_eta(secs: Option<u64>) -> String {
 fn print_banner() {
     let banner = include_str!("banner.txt");
     println!("{}", banner.bright_cyan().bold());
-    println!("{}", "   --- FeTorrent: Modern Rust BitTorrent Engine ---".truecolor(100, 100, 100).italic());
+    println!(
+        "{}",
+        "   --- FeTorrent: Modern Rust BitTorrent Engine ---"
+            .truecolor(100, 100, 100)
+            .italic()
+    );
     println!();
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { createElement, useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   AlertCircle,
@@ -17,7 +17,7 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import { useFeTorrentStream, pauseTorrent, resumeTorrent, removeTorrent, addTorrent, fetchSettings, updateSettings } from './api';
+import { useFeTorrentStream, pauseTorrent, resumeTorrent, removeTorrent, addTorrent, fetchSettings, updateSettings, selectDirectory } from './api';
 import { formatBytes } from './lib/utils';
 
 // ShadCN Components
@@ -33,8 +33,15 @@ import {
   DialogHeader, 
   DialogTitle, 
   DialogTrigger,
-  DialogFooter
+  DialogFooter,
+  DialogClose
 } from "@/components/ui/dialog";
+import { 
+  Tabs, 
+  TabsContent, 
+  TabsList, 
+  TabsTrigger 
+} from "@/components/ui/tabs";
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -42,6 +49,8 @@ import { cn } from "@/lib/utils";
 export default function App() {
   const { torrents, globalStats, connected } = useFeTorrentStream();
   const [addingMagnet, setAddingMagnet] = useState("");
+  const [addingFile, setAddingFile] = useState(null);
+  const [addingDir, setAddingDir] = useState("");
   const [activeTab, setActiveTab] = useState("transfer");
   const [filter, setFilter] = useState("All Torrents");
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -52,21 +61,48 @@ export default function App() {
     fetchSettings().then(setSettings).catch(console.error);
   }, []);
 
+  useEffect(() => {
+    if (settings?.downloads?.directory && !addingDir) {
+      setAddingDir(settings.downloads.directory);
+    }
+  }, [settings, addingDir]);
+
   const handleAdd = async (e) => {
     e.preventDefault();
-    if (!addingMagnet.trim()) return;
     
     const fd = new FormData();
-    fd.append('magnet', addingMagnet);
+    if (addingMagnet.trim()) {
+      fd.append('magnet', addingMagnet);
+    } else if (addingFile) {
+      fd.append('file', addingFile);
+    } else {
+      toast.error('Please provide a magnet URI or a .torrent file');
+      return;
+    }
+
+    if (addingDir.trim()) {
+      fd.append('dir', addingDir.trim());
+    }
     
     toast.promise(addTorrent(fd), {
        loading: 'Initializing swarm...',
        success: 'Torrent added',
-       error: 'Failed to add torrent',
+       error: (err) => `Failed: ${err.message || 'Unknown error'}`,
     });
 
     setAddingMagnet("");
+    setAddingFile(null);
+    setAddingDir(settings?.downloads?.directory || "");
     setIsAddOpen(false);
+  };
+
+  const handlePickAddDirectory = async () => {
+    try {
+      const path = await selectDirectory();
+      setAddingDir(path);
+    } catch (err) {
+      toast.error(err.message || 'Failed to select directory');
+    }
   };
 
   const filteredTorrents = torrents.filter(t => {
@@ -254,12 +290,79 @@ export default function App() {
                     <DialogDescription>Paste a magnet URI to start downloading.</DialogDescription>
                   </DialogHeader>
                   <form onSubmit={handleAdd} className="space-y-4">
-                    <Input
-                      placeholder="magnet:?xt=urn:btih:..."
-                      value={addingMagnet}
-                      onChange={e => setAddingMagnet(e.target.value)}
-                      autoFocus
-                    />
+                    <Tabs defaultValue="magnet" className="w-full">
+                      <TabsList className="grid w-full grid-cols-2 bg-muted/30">
+                        <TabsTrigger value="magnet">Magnet URI</TabsTrigger>
+                        <TabsTrigger value="file">.torrent File</TabsTrigger>
+                      </TabsList>
+                      
+                      <TabsContent value="magnet" className="mt-4 space-y-4">
+                        <div className="space-y-2">
+                          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Magnet Link</label>
+                          <Input
+                            placeholder="magnet:?xt=urn:btih:..."
+                            value={addingMagnet}
+                            onChange={e => {
+                                setAddingMagnet(e.target.value);
+                                setAddingFile(null);
+                            }}
+                            autoFocus
+                          />
+                        </div>
+                      </TabsContent>
+                      
+                      <TabsContent value="file" className="mt-4 space-y-4">
+                        <div className="space-y-2">
+                          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Torrent File</label>
+                          <div 
+                            className={cn(
+                              "border-2 border-dashed border-border/60 rounded-xl p-8 text-center transition-colors cursor-pointer hover:border-orange-500/40 hover:bg-orange-500/5",
+                              addingFile && "border-orange-500/60 bg-orange-500/10"
+                            )}
+                            onClick={() => document.getElementById('torrent-file-input').click()}
+                          >
+                            <Upload className="size-8 mx-auto mb-3 text-muted-foreground" />
+                            <p className="text-sm font-medium">
+                              {addingFile ? addingFile.name : "Click to select or drag & drop"}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1">.torrent files only</p>
+                            <input 
+                              id="torrent-file-input"
+                              type="file"
+                              accept=".torrent"
+                              className="hidden"
+                              onChange={(e) => {
+                                  if (e.target.files?.[0]) {
+                                      setAddingFile(e.target.files[0]);
+                                      setAddingMagnet("");
+                                  }
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </TabsContent>
+                    </Tabs>
+
+                    <div className="space-y-2">
+                      <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Download Directory</label>
+                      <div className="flex gap-2">
+                        <Input
+                          value={addingDir}
+                          onChange={e => setAddingDir(e.target.value)}
+                          placeholder={settings?.downloads?.directory || "Use default download directory"}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          onClick={handlePickAddDirectory}
+                          title="Choose download directory"
+                        >
+                          <FolderOpen className="size-4" />
+                        </Button>
+                      </div>
+                    </div>
+
                     <DialogFooter>
                       <Button type="submit" className="w-full bg-gradient-to-r from-orange-500 to-orange-600">
                         Add to Queue
@@ -280,7 +383,7 @@ export default function App() {
                 <>
                   {/* Stats Grid */}
                   <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                    {statItems.map(({ label, value, icon: Icon, color }) => (
+                    {statItems.map(({ label, value, icon, color }) => (
                       <Card key={label} className={cn(
                         "border border-border/60 bg-gradient-to-br from-card to-card/50 overflow-hidden group hover:border-orange-500/30 transition-all duration-300",
                         color && `hover:shadow-lg hover:shadow-${color}/20`
@@ -289,7 +392,7 @@ export default function App() {
                           <div className="flex items-start justify-between mb-3">
                             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{label}</p>
                             <div className="p-2 rounded-lg bg-muted/50 group-hover:bg-orange-500/10 transition-colors">
-                              <Icon className="size-4 text-orange-400" />
+                              {createElement(icon, { className: "size-4 text-orange-400" })}
                             </div>
                           </div>
                           <p className="text-2xl font-bold tracking-tight">{value}</p>
@@ -501,7 +604,12 @@ function SettingsView({ settings, onSave }) {
     downloads: { directory: "", max_peers: 200 },
     limits: { download_kbps: 0, upload_kbps: 0 }
   });
-  const dirPickerRef = useRef(null);
+
+  useEffect(() => {
+    if (settings) {
+      setFormData(settings);
+    }
+  }, [settings]);
 
   if (!settings) return <div className="text-center py-20 text-muted-foreground">Loading settings...</div>;
 
@@ -510,18 +618,13 @@ function SettingsView({ settings, onSave }) {
     toast.success("Settings saved successfully");
   };
 
-  const handleDirectoryPicker = () => {
-    dirPickerRef.current?.click();
-  };
-
-  const handleDirectorySelected = (e) => {
-    const files = e.target.files;
-    if (files && files.length > 0) {
-      // Get the directory path from the first file's path
-      const filePath = files[0].webkitRelativePath || files[0].name;
-      const dirPath = filePath.substring(0, filePath.lastIndexOf('/')) || '/';
-      setFormData({ ...formData, downloads: { ...formData.downloads, directory: dirPath } });
+  const handleDirectoryPicker = async () => {
+    try {
+      const path = await selectDirectory();
+      setFormData(prev => ({ ...prev, downloads: { ...prev.downloads, directory: path } }));
       toast.success("Directory selected");
+    } catch (err) {
+      toast.error(err.message || "Failed to select directory");
     }
   };
 
@@ -540,8 +643,8 @@ function SettingsView({ settings, onSave }) {
             <div className="flex gap-2">
               <Input
                 value={formData.downloads.directory}
-                onChange={e => setFormData({ ...formData, downloads: { ...formData.downloads, directory: e.target.value } })}
                 placeholder="Select download directory..."
+                onChange={e => setFormData({ ...formData, downloads: { ...formData.downloads, directory: e.target.value } })}
               />
               <Button
                 type="button"
@@ -552,13 +655,6 @@ function SettingsView({ settings, onSave }) {
               >
                 <FolderOpen className="size-4" />
               </Button>
-              <input
-                ref={dirPickerRef}
-                type="file"
-                webkitdirectory=""
-                style={{ display: 'none' }}
-                onChange={handleDirectorySelected}
-              />
             </div>
           </div>
 

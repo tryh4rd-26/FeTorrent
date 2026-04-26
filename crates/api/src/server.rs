@@ -1,15 +1,11 @@
 use axum::{
-    routing::{get, post, delete},
+    routing::{delete, get, post},
     Router,
 };
-use tower_http::{
-    cors::CorsLayer,
-    services::ServeDir,
-    trace::TraceLayer,
-};
+use fetorrent_core::Engine;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use fetorrent_core::Engine;
+use tower_http::{cors::CorsLayer, services::ServeDir, trace::TraceLayer};
 
 use crate::routes::*;
 use crate::ws::ws_handler;
@@ -22,7 +18,9 @@ pub async fn start_server(
 ) -> anyhow::Result<()> {
     // Restrict CORS to localhost (or specify exact origin in production)
     let cors = CorsLayer::permissive()
-        .allow_origin(axum::http::HeaderValue::from_static("http://localhost:3000"))
+        .allow_origin(axum::http::HeaderValue::from_static(
+            "http://localhost:3000",
+        ))
         .allow_methods([
             axum::http::Method::GET,
             axum::http::Method::POST,
@@ -30,7 +28,7 @@ pub async fn start_server(
             axum::http::Method::OPTIONS,
         ])
         .allow_headers(vec![axum::http::header::CONTENT_TYPE]);
-        
+
     let api_routes = Router::new()
         .route("/torrents", get(list_torrents))
         .route("/torrents/add", post(add_torrent))
@@ -42,6 +40,7 @@ pub async fn start_server(
         .route("/torrents/:id/peers", get(get_peers))
         .route("/stats", get(get_stats))
         .route("/settings", get(get_settings).post(update_settings))
+        .route("/select-directory", get(select_directory))
         .route("/ws", get(ws_handler))
         .with_state(engine);
 
