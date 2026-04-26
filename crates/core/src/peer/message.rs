@@ -2,7 +2,7 @@
 //!
 //! Message format:
 //! <length prefix><message ID><payload>
-//! 
+//!
 //! Length is 4 bytes big-endian.
 //! KeepAlive: length = 0
 //! Choke: ID = 0
@@ -18,7 +18,6 @@
 
 use bytes::{Buf, BufMut, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
-use crate::error::{CoreError, Result};
 
 pub const MAX_FRAME_SIZE: usize = 1024 * 1024; // 1MB upper limit against abusive peers (standard max is 16KB + header)
 
@@ -29,17 +28,42 @@ pub enum Message {
     Unchoke,
     Interested,
     NotInterested,
-    Have { piece_index: u32 },
+    Have {
+        piece_index: u32,
+    },
     Bitfield(Vec<u8>),
-    Request { index: u32, begin: u32, length: u32 },
-    Piece { index: u32, begin: u32, block: Vec<u8> },
-    Cancel { index: u32, begin: u32, length: u32 },
-    Port { listen_port: u16 },
+    Request {
+        index: u32,
+        begin: u32,
+        length: u32,
+    },
+    Piece {
+        index: u32,
+        begin: u32,
+        block: Vec<u8>,
+    },
+    Cancel {
+        index: u32,
+        begin: u32,
+        length: u32,
+    },
+    Port {
+        listen_port: u16,
+    },
     // BEP 10 Extended message support would go here
-    Extended { msg_id: u8, payload: Vec<u8> },
+    Extended {
+        msg_id: u8,
+        payload: Vec<u8>,
+    },
 }
 
 pub struct MessageCodec {}
+
+impl Default for MessageCodec {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl MessageCodec {
     pub fn new() -> Self {
@@ -52,7 +76,10 @@ impl Decoder for MessageCodec {
     type Item = Message;
     type Error = std::io::Error;
 
-    fn decode(&mut self, src: &mut BytesMut) -> std::result::Result<Option<Self::Item>, Self::Error> {
+    fn decode(
+        &mut self,
+        src: &mut BytesMut,
+    ) -> std::result::Result<Option<Self::Item>, Self::Error> {
         if src.len() < 4 {
             return Ok(None); // Need at least length prefix
         }
@@ -63,7 +90,10 @@ impl Decoder for MessageCodec {
         let length = u32::from_be_bytes(length_bytes) as usize;
 
         if length > MAX_FRAME_SIZE {
-            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "frame too large"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "frame too large",
+            ));
         }
 
         if src.len() < 4 + length {
@@ -72,7 +102,7 @@ impl Decoder for MessageCodec {
 
         // Consume frame
         src.advance(4); // Consume length
-        
+
         if length == 0 {
             return Ok(Some(Message::KeepAlive));
         }
@@ -83,24 +113,36 @@ impl Decoder for MessageCodec {
 
         let msg = match msg_id {
             0 => {
-                if payload_len != 0 { return Err(bad_data("Choke payload must be 0")); }
+                if payload_len != 0 {
+                    return Err(bad_data("Choke payload must be 0"));
+                }
                 Message::Choke
             }
             1 => {
-                if payload_len != 0 { return Err(bad_data("Unchoke payload must be 0")); }
+                if payload_len != 0 {
+                    return Err(bad_data("Unchoke payload must be 0"));
+                }
                 Message::Unchoke
             }
             2 => {
-                if payload_len != 0 { return Err(bad_data("Interested payload must be 0")); }
+                if payload_len != 0 {
+                    return Err(bad_data("Interested payload must be 0"));
+                }
                 Message::Interested
             }
             3 => {
-                if payload_len != 0 { return Err(bad_data("NotInterested payload must be 0")); }
+                if payload_len != 0 {
+                    return Err(bad_data("NotInterested payload must be 0"));
+                }
                 Message::NotInterested
             }
             4 => {
-                if payload_len != 4 { return Err(bad_data("Have must have 4 byte payload")); }
-                Message::Have { piece_index: src.get_u32() }
+                if payload_len != 4 {
+                    return Err(bad_data("Have must have 4 byte payload"));
+                }
+                Message::Have {
+                    piece_index: src.get_u32(),
+                }
             }
             5 => {
                 let mut bitfield = vec![0u8; payload_len];
@@ -108,7 +150,9 @@ impl Decoder for MessageCodec {
                 Message::Bitfield(bitfield)
             }
             6 => {
-                if payload_len != 12 { return Err(bad_data("Request must have 12 byte payload")); }
+                if payload_len != 12 {
+                    return Err(bad_data("Request must have 12 byte payload"));
+                }
                 Message::Request {
                     index: src.get_u32(),
                     begin: src.get_u32(),
@@ -116,15 +160,23 @@ impl Decoder for MessageCodec {
                 }
             }
             7 => {
-                if payload_len < 8 { return Err(bad_data("Piece must have at least 8 bytes payload")); }
+                if payload_len < 8 {
+                    return Err(bad_data("Piece must have at least 8 bytes payload"));
+                }
                 let index = src.get_u32();
                 let begin = src.get_u32();
                 let mut block = vec![0u8; payload_len - 8];
                 src.copy_to_slice(&mut block);
-                Message::Piece { index, begin, block }
+                Message::Piece {
+                    index,
+                    begin,
+                    block,
+                }
             }
             8 => {
-                if payload_len != 12 { return Err(bad_data("Cancel must have 12 byte payload")); }
+                if payload_len != 12 {
+                    return Err(bad_data("Cancel must have 12 byte payload"));
+                }
                 Message::Cancel {
                     index: src.get_u32(),
                     begin: src.get_u32(),
@@ -132,15 +184,25 @@ impl Decoder for MessageCodec {
                 }
             }
             9 => {
-                if payload_len != 2 { return Err(bad_data("Port must have 2 byte payload")); }
-                Message::Port { listen_port: src.get_u16() }
+                if payload_len != 2 {
+                    return Err(bad_data("Port must have 2 byte payload"));
+                }
+                Message::Port {
+                    listen_port: src.get_u16(),
+                }
             }
-            20 => { // BEP 10
-                 if payload_len < 1 { return Err(bad_data("Extended message needs extended msg_id")); }
-                 let ext_id = src.get_u8();
-                 let mut ext_payload = vec![0u8; payload_len - 1];
-                 src.copy_to_slice(&mut ext_payload);
-                 Message::Extended { msg_id: ext_id, payload: ext_payload }
+            20 => {
+                // BEP 10
+                if payload_len < 1 {
+                    return Err(bad_data("Extended message needs extended msg_id"));
+                }
+                let ext_id = src.get_u8();
+                let mut ext_payload = vec![0u8; payload_len - 1];
+                src.copy_to_slice(&mut ext_payload);
+                Message::Extended {
+                    msg_id: ext_id,
+                    payload: ext_payload,
+                }
             }
             _ => {
                 // Ignore unknown message types but consume payload
@@ -160,7 +222,11 @@ impl Decoder for MessageCodec {
 impl Encoder<Message> for MessageCodec {
     type Error = std::io::Error;
 
-    fn encode(&mut self, item: Message, dst: &mut BytesMut) -> std::result::Result<(), Self::Error> {
+    fn encode(
+        &mut self,
+        item: Message,
+        dst: &mut BytesMut,
+    ) -> std::result::Result<(), Self::Error> {
         match item {
             Message::KeepAlive => {
                 dst.put_u32(0);
@@ -191,21 +257,33 @@ impl Encoder<Message> for MessageCodec {
                 dst.put_u8(5);
                 dst.extend_from_slice(&bitfield);
             }
-            Message::Request { index, begin, length } => {
+            Message::Request {
+                index,
+                begin,
+                length,
+            } => {
                 dst.put_u32(13);
                 dst.put_u8(6);
                 dst.put_u32(index);
                 dst.put_u32(begin);
                 dst.put_u32(length);
             }
-            Message::Piece { index, begin, block } => {
+            Message::Piece {
+                index,
+                begin,
+                block,
+            } => {
                 dst.put_u32(9 + block.len() as u32);
                 dst.put_u8(7);
                 dst.put_u32(index);
                 dst.put_u32(begin);
                 dst.extend_from_slice(&block);
             }
-            Message::Cancel { index, begin, length } => {
+            Message::Cancel {
+                index,
+                begin,
+                length,
+            } => {
                 dst.put_u32(13);
                 dst.put_u8(8);
                 dst.put_u32(index);

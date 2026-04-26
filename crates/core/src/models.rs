@@ -1,6 +1,6 @@
-use serde::{Serialize, Deserialize};
-use chrono::{DateTime, Utc};
 use crate::error::{CoreError, Result};
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TorrentInfo {
@@ -9,27 +9,36 @@ pub struct TorrentInfo {
     pub info_hash: String, // Hex string
     pub magnet: Option<String>,
     pub save_path: String,
-    
+
     pub status: TorrentStatus,
     pub progress: f32, // 0.0 to 1.0
     pub downloaded: u64,
     pub uploaded: u64,
     pub total_size: u64,
-    
+
     pub dl_speed: u64, // bytes/s
     pub ul_speed: u64, // bytes/s
     pub eta_secs: Option<u64>,
     pub ratio: f32,
-    
+
     pub num_peers: usize,
     pub num_seeds: usize,
     pub num_leechers: usize,
     pub num_pieces: u32,
     pub piece_length: u32,
-    
+
     pub files: Vec<FileInfo>,
     pub trackers: Vec<TrackerInfo>,
+    #[serde(default)]
+    pub logs: Vec<ActivityLog>,
     pub added_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActivityLog {
+    pub timestamp: DateTime<Utc>,
+    pub message: String,
+    pub level: String,
 }
 
 impl TorrentInfo {
@@ -39,11 +48,16 @@ impl TorrentInfo {
 
     pub fn get_info_hash_bytes(&self) -> Result<[u8; 20]> {
         if self.info_hash.len() != 40 {
-             return Err(CoreError::TorrentInvalidField("info_hash", "invalid hex length".into()));
+            return Err(CoreError::TorrentInvalidField(
+                "info_hash",
+                "invalid hex length".into(),
+            ));
         }
         let bytes = hex::decode(&self.info_hash)
             .map_err(|e| CoreError::TorrentInvalidField("info_hash", e.to_string()))?;
-        let arr: [u8; 20] = bytes.try_into().map_err(|_| CoreError::TorrentInvalidField("info_hash", "not 20 bytes".into()))?;
+        let arr: [u8; 20] = bytes
+            .try_into()
+            .map_err(|_| CoreError::TorrentInvalidField("info_hash", "not 20 bytes".into()))?;
         Ok(arr)
     }
 }
@@ -126,9 +140,21 @@ pub struct GlobalStats {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum TorrentEvent {
-    TorrentAdded { torrent: TorrentInfo },
-    TorrentUpdated { torrent: TorrentInfo },
-    TorrentRemoved { id: usize },
-    StatsUpdate { torrents: Vec<TorrentInfo>, global: GlobalStats },
-    Log { level: String, message: String },
+    TorrentAdded {
+        torrent: TorrentInfo,
+    },
+    TorrentUpdated {
+        torrent: TorrentInfo,
+    },
+    TorrentRemoved {
+        id: usize,
+    },
+    StatsUpdate {
+        torrents: Vec<TorrentInfo>,
+        global: GlobalStats,
+    },
+    Log {
+        level: String,
+        message: String,
+    },
 }

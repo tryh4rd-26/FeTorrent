@@ -3,11 +3,11 @@
 //! GET http://tracker/announce?info_hash=...&peer_id=...&...
 //! Response is a bencoded dictionary.
 
-use std::net::{IpAddr, Ipv4Addr};
-use reqwest::Client;
+use super::{AnnounceEvent, AnnounceRequest, AnnounceResponse, TrackerPeer};
 use crate::bencode;
 use crate::error::{CoreError, Result};
-use super::{AnnounceEvent, AnnounceRequest, AnnounceResponse, TrackerPeer};
+use reqwest::Client;
+use std::net::{IpAddr, Ipv4Addr};
 
 pub struct HttpTracker {
     client: Client,
@@ -20,7 +20,8 @@ impl super::Tracker for HttpTracker {
         let url = self.build_url(&req);
         tracing::debug!("HTTP tracker announce: {}", url);
 
-        let resp = self.client
+        let resp = self
+            .client
             .get(&url)
             .header("User-Agent", "FeTorrent/0.1")
             .send()
@@ -31,7 +32,9 @@ impl super::Tracker for HttpTracker {
             return Err(CoreError::TrackerHttp(format!("HTTP {}", resp.status())));
         }
 
-        let bytes = resp.bytes().await
+        let bytes = resp
+            .bytes()
+            .await
             .map_err(|e| CoreError::TrackerHttp(e.to_string()))?;
 
         self.parse_response(&bytes)
@@ -48,7 +51,10 @@ impl HttpTracker {
             .timeout(std::time::Duration::from_secs(15))
             .build()
             .expect("Failed to build HTTP client");
-        Self { client, url: url.to_string() }
+        Self {
+            client,
+            url: url.to_string(),
+        }
     }
 
     fn build_url(&self, req: &AnnounceRequest) -> String {
@@ -73,7 +79,9 @@ impl HttpTracker {
 
     fn parse_response(&self, data: &[u8]) -> Result<AnnounceResponse> {
         let root = bencode::decode(data)?;
-        let dict = root.as_dict().ok_or(CoreError::TrackerHttp("response not a dict".into()))?;
+        let dict = root
+            .as_dict()
+            .ok_or(CoreError::TrackerHttp("response not a dict".into()))?;
 
         // Check for tracker failure
         if let Some(reason) = dict.get(b"failure reason".as_ref()) {
@@ -81,15 +89,18 @@ impl HttpTracker {
             return Err(CoreError::TrackerFailure(msg));
         }
 
-        let interval = dict.get(b"interval".as_ref())
+        let interval = dict
+            .get(b"interval".as_ref())
             .and_then(|v| v.as_int())
             .unwrap_or(1800) as u32;
 
-        let seeders = dict.get(b"complete".as_ref())
+        let seeders = dict
+            .get(b"complete".as_ref())
             .and_then(|v| v.as_int())
             .unwrap_or(0) as u32;
 
-        let leechers = dict.get(b"incomplete".as_ref())
+        let leechers = dict
+            .get(b"incomplete".as_ref())
             .and_then(|v| v.as_int())
             .unwrap_or(0) as u32;
 
@@ -102,7 +113,10 @@ impl HttpTracker {
                     for chunk in compact.chunks_exact(6) {
                         let ip = Ipv4Addr::new(chunk[0], chunk[1], chunk[2], chunk[3]);
                         let port = u16::from_be_bytes([chunk[4], chunk[5]]);
-                        peers.push(TrackerPeer { ip: IpAddr::V4(ip), port });
+                        peers.push(TrackerPeer {
+                            ip: IpAddr::V4(ip),
+                            port,
+                        });
                     }
                 }
                 // Dictionary format (non-compact)
@@ -123,13 +137,19 @@ impl HttpTracker {
             }
         }
 
-        Ok(AnnounceResponse { interval, seeders, leechers, peers })
+        Ok(AnnounceResponse {
+            interval,
+            seeders,
+            leechers,
+            peers,
+        })
     }
 }
 
 /// URL-encode raw bytes as %XX sequences.
 fn url_encode_bytes(bytes: &[u8]) -> String {
-    bytes.iter()
+    bytes
+        .iter()
         .map(|&b| {
             if b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.' || b == b'~' {
                 format!("{}", b as char)

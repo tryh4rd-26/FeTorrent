@@ -31,6 +31,7 @@ pub struct TorrentUpdate {
     pub num_seeds: usize,
     pub num_leechers: usize,
     pub status: TorrentStatus,
+    pub logs: Vec<crate::models::ActivityLog>,
 
     // Metadata discovered via magnet (initially None)
     pub total_size: Option<u64>,
@@ -73,6 +74,7 @@ pub struct TorrentTask {
     swarm_leechers: u32,
     active_pieces: HashMap<u32, ActivePiece>,
     save_path: std::path::PathBuf,
+    pending_logs: Vec<crate::models::ActivityLog>,
 }
 
 pub struct TorrentTaskParams {
@@ -147,6 +149,22 @@ impl TorrentTask {
             swarm_leechers: 0,
             active_pieces: HashMap::new(),
             save_path,
+            pending_logs: Vec::new(),
+        }
+    }
+
+    fn log(&mut self, level: &str, message: impl Into<String>) {
+        let msg = message.into();
+        self.pending_logs.push(crate::models::ActivityLog {
+            timestamp: chrono::Utc::now(),
+            message: msg.clone(),
+            level: level.to_string(),
+        });
+        match level {
+            "info" => info!("{}", msg),
+            "error" => error!("{}", msg),
+            "debug" => debug!("{}", msg),
+            _ => info!("{}", msg),
         }
     }
 
@@ -198,6 +216,7 @@ impl TorrentTask {
                         } else {
                             TorrentStatus::Downloading
                         },
+                        logs: std::mem::take(&mut self.pending_logs),
                         total_size: self.piece_manager.as_ref().map(|pm| pm.total_size()),
                         num_pieces: self.piece_manager.as_ref().map(|pm| pm.num_pieces()),
                         piece_length: self.piece_manager.as_ref().map(|pm| pm.piece_length()),
@@ -304,33 +323,46 @@ impl TorrentTask {
                         self.downloaded += block.len() as u64;
                         if active.is_complete() {
                             let piece_data = active.data.clone();
+                            let mut verified = false;
+                            let mut write_success = false;
+                            let mut hash_failed = false;
+
                             if let (Some(pm), Some(storage)) =
                                 (&mut self.piece_manager, &mut self.storage)
                             {
                                 if pm.verify_hash(index, &piece_data) {
-                                    info!("Piece {} verified!", index);
+                                    verified = true;
+                                    let piece_len = pm.get_piece_length(index);
                                     if let Err(e) = storage.write_piece(
                                         index,
-                                        pm.get_piece_length(index),
+                                        piece_len,
                                         &piece_data,
                                     ) {
                                         error!("Failed to write piece {} to storage: {}", index, e);
                                     } else {
+                                        write_success = true;
                                         pm.states[index as usize] = PieceState::Verified;
                                         pm.set_bit(index);
-                                        self.left -= piece_data.len() as u64;
-                                        self.active_pieces.remove(&index);
-
-                                        // Broadcast HAVE to all active peers
-                                        for tx in self.active_peers.values() {
-                                            let _ = tx.send(PeerCommand::SendHave { index }).await;
-                                        }
                                     }
                                 } else {
-                                    error!("Piece {} hash mismatch, retrying...", index);
+                                    hash_failed = true;
                                     pm.states[index as usize] = PieceState::Missing;
-                                    self.active_pieces.remove(&index);
                                 }
+                            }
+
+                            if verified {
+                                self.log("info", format!("Piece {} verified!", index));
+                                if write_success {
+                                    self.left -= piece_data.len() as u64;
+                                    self.active_pieces.remove(&index);
+                                    // Broadcast HAVE to all active peers
+                                    for tx in self.active_peers.values() {
+                                        let _ = tx.send(PeerCommand::SendHave { index }).await;
+                                    }
+                                }
+                            } else if hash_failed {
+                                self.log("error", format!("Piece {} hash mismatch, retrying...", index));
+                                self.active_pieces.remove(&index);
                             }
                         }
                     }
@@ -566,12 +598,12 @@ impl TorrentTask {
         for result in results {
             match result {
                 Ok(resp) => {
-                    info!(
-                        "Tracker returned {} peers (Seeds: {}, Leechers: {})",
-                        resp.peers.len(),
-                        resp.seeders,
-                        resp.leechers
-                    );
+                        self.log("info", format!(
+                            "Tracker returned {} peers (Seeds: {}, Leechers: {})",
+                            resp.peers.len(),
+                            resp.seeders,
+                            resp.leechers
+                        ));
                     self.swarm_seeds = self.swarm_seeds.max(resp.seeders);
                     self.swarm_leechers = self.swarm_leechers.max(resp.leechers);
                     self.peer_manager.add_candidates(resp.peers);

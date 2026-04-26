@@ -3,10 +3,10 @@
 //! Supports single-file and multi-file torrents (v1).
 //! Extracts info_hash by SHA-1 hashing the raw bencoded info dict.
 
-use sha1::{Sha1, Digest};
 use crate::bencode::{self, BValue, Decoder};
 use crate::error::{CoreError, Result};
 use crate::models::{FileInfo, FilePriority, TrackerInfo};
+use sha1::{Digest, Sha1};
 
 /// Parsed representation of a .torrent file.
 #[derive(Debug, Clone)]
@@ -25,9 +25,9 @@ pub struct TorrentFile {
 
 #[derive(Debug, Clone)]
 pub struct TorrentFileEntry {
-    pub path: String,   // relative path, joined with /
+    pub path: String, // relative path, joined with /
     pub size: u64,
-    pub offset: u64,    // byte offset within the entire torrent data
+    pub offset: u64, // byte offset within the entire torrent data
 }
 
 impl Default for TorrentFile {
@@ -50,14 +50,17 @@ impl TorrentFile {
     /// Parse from raw .torrent bytes.
     pub fn from_bytes(data: &[u8]) -> Result<Self> {
         let root = bencode::decode(data)?;
-        let dict = root.as_dict().ok_or(CoreError::TorrentMissingField("root dict"))?;
+        let dict = root
+            .as_dict()
+            .ok_or(CoreError::TorrentMissingField("root dict"))?;
 
         // ── Info hash: SHA-1 of the raw bencoded info dict ──────────────────
         let info_hash = compute_info_hash(data)?;
 
-        let info = dict.get(b"info".as_ref())
+        let info = dict
+            .get(b"info".as_ref())
             .ok_or(CoreError::TorrentMissingField("info"))?;
-        
+
         let mut torrent = Self::from_info_value(info)?;
         torrent.info_hash = info_hash;
 
@@ -65,7 +68,10 @@ impl TorrentFile {
         if let Some(announce) = dict.get(b"announce".as_ref()).and_then(|v| v.as_str()) {
             torrent.trackers.push(announce.to_string());
         }
-        if let Some(announce_list) = dict.get(b"announce-list".as_ref()).and_then(|v| v.as_list()) {
+        if let Some(announce_list) = dict
+            .get(b"announce-list".as_ref())
+            .and_then(|v| v.as_list())
+        {
             for tier in announce_list {
                 if let Some(tier_list) = tier.as_list() {
                     for url in tier_list {
@@ -80,8 +86,14 @@ impl TorrentFile {
             }
         }
 
-        torrent.comment = dict.get(b"comment".as_ref()).and_then(|v| v.as_str()).map(|s| s.to_string());
-        torrent.created_by = dict.get(b"created by".as_ref()).and_then(|v| v.as_str()).map(|s| s.to_string());
+        torrent.comment = dict
+            .get(b"comment".as_ref())
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        torrent.created_by = dict
+            .get(b"created by".as_ref())
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
 
         Ok(torrent)
     }
@@ -90,35 +102,44 @@ impl TorrentFile {
     pub fn from_info_dict(data: &[u8]) -> Result<Self> {
         let info_value = bencode::decode(data)?;
         let mut torrent = Self::from_info_value(&info_value)?;
-        
+
         // Info hash is just SHA-1 of the entire info dict
         let mut hasher = Sha1::new();
         hasher.update(data);
         torrent.info_hash = hasher.finalize().into();
-        
+
         Ok(torrent)
     }
 
     fn from_info_value(info: &BValue) -> Result<Self> {
-        let info_dict = info.as_dict().ok_or(CoreError::TorrentMissingField("info dict"))?;
+        let info_dict = info
+            .as_dict()
+            .ok_or(CoreError::TorrentMissingField("info dict"))?;
 
         // ── Name ──────────────────────────────────────────────────────────
-        let name = info_dict.get(b"name".as_ref())
+        let name = info_dict
+            .get(b"name".as_ref())
             .and_then(|v| v.as_str())
             .unwrap_or("Unknown")
             .to_string();
 
         // ── Piece length ──────────────────────────────────────────────────
-        let piece_length = info_dict.get(b"piece length".as_ref())
+        let piece_length = info_dict
+            .get(b"piece length".as_ref())
             .and_then(|v| v.as_int())
-            .ok_or(CoreError::TorrentMissingField("piece length"))? as u32;
+            .ok_or(CoreError::TorrentMissingField("piece length"))?
+            as u32;
 
         // ── Piece hashes ──────────────────────────────────────────────────
-        let pieces_raw = info_dict.get(b"pieces".as_ref())
+        let pieces_raw = info_dict
+            .get(b"pieces".as_ref())
             .and_then(|v| v.as_bytes())
             .ok_or(CoreError::TorrentMissingField("pieces"))?;
         if pieces_raw.len() % 20 != 0 {
-            return Err(CoreError::TorrentInvalidField("pieces", "length not multiple of 20".into()));
+            return Err(CoreError::TorrentInvalidField(
+                "pieces",
+                "length not multiple of 20".into(),
+            ));
         }
         let pieces: Vec<[u8; 20]> = pieces_raw
             .chunks_exact(20)
@@ -131,23 +152,28 @@ impl TorrentFile {
             parse_multi_file(&name, files_list)?
         } else {
             // Single-file torrent
-            let size = info_dict.get(b"length".as_ref())
+            let size = info_dict
+                .get(b"length".as_ref())
                 .and_then(|v| v.as_int())
                 .ok_or(CoreError::TorrentMissingField("length"))? as u64;
-            let entry = TorrentFileEntry { path: name.clone(), size, offset: 0 };
+            let entry = TorrentFileEntry {
+                path: name.clone(),
+                size,
+                offset: 0,
+            };
             (vec![entry], size)
         };
 
-        Ok(TorrentFile { 
-            info_hash: [0u8; 20], 
-            name, 
-            piece_length, 
-            pieces, 
-            total_size, 
-            files, 
-            trackers: Vec::new(), 
-            comment: None, 
-            created_by: None 
+        Ok(TorrentFile {
+            info_hash: [0u8; 20],
+            name,
+            piece_length,
+            pieces,
+            total_size,
+            files,
+            trackers: Vec::new(),
+            comment: None,
+            created_by: None,
         })
     }
 
@@ -160,44 +186,63 @@ impl TorrentFile {
     }
 
     pub fn into_file_infos(&self) -> Vec<FileInfo> {
-        self.files.iter().enumerate().map(|(i, f)| FileInfo {
-            index: i,
-            path: f.path.clone(),
-            size: f.size,
-            downloaded: 0,
-            priority: FilePriority::Normal,
-        }).collect()
+        self.files
+            .iter()
+            .enumerate()
+            .map(|(i, f)| FileInfo {
+                index: i,
+                path: f.path.clone(),
+                size: f.size,
+                downloaded: 0,
+                priority: FilePriority::Normal,
+            })
+            .collect()
     }
 
     pub fn into_tracker_infos(&self) -> Vec<TrackerInfo> {
-        self.trackers.iter().map(|url| TrackerInfo {
-            url: url.clone(),
-            status: "pending".into(),
-            seeders: None,
-            leechers: None,
-            last_announce: None,
-            next_announce: None,
-        }).collect()
+        self.trackers
+            .iter()
+            .map(|url| TrackerInfo {
+                url: url.clone(),
+                status: "pending".into(),
+                seeders: None,
+                leechers: None,
+                last_announce: None,
+                next_announce: None,
+            })
+            .collect()
     }
 }
 
 fn parse_multi_file(name: &str, files_val: &BValue) -> Result<(Vec<TorrentFileEntry>, u64)> {
-    let list = files_val.as_list().ok_or(CoreError::TorrentInvalidField("files", "not a list".into()))?;
+    let list = files_val
+        .as_list()
+        .ok_or(CoreError::TorrentInvalidField("files", "not a list".into()))?;
     let mut entries = Vec::new();
     let mut offset = 0u64;
     for item in list {
-        let d = item.as_dict().ok_or(CoreError::TorrentInvalidField("file entry", "not a dict".into()))?;
-        let size = d.get(b"length".as_ref())
+        let d = item.as_dict().ok_or(CoreError::TorrentInvalidField(
+            "file entry",
+            "not a dict".into(),
+        ))?;
+        let size = d
+            .get(b"length".as_ref())
             .and_then(|v| v.as_int())
             .ok_or(CoreError::TorrentMissingField("file length"))? as u64;
-        let path_parts = d.get(b"path".as_ref())
+        let path_parts = d
+            .get(b"path".as_ref())
             .and_then(|v| v.as_list())
             .ok_or(CoreError::TorrentMissingField("file path"))?;
         let mut parts = vec![name.to_string()];
         for part in path_parts {
-            parts.push(part.as_str()
-                .ok_or(CoreError::TorrentInvalidField("file path part", "not utf8".into()))?
-                .to_string());
+            parts.push(
+                part.as_str()
+                    .ok_or(CoreError::TorrentInvalidField(
+                        "file path part",
+                        "not utf8".into(),
+                    ))?
+                    .to_string(),
+            );
         }
         let path = parts.join("/");
         entries.push(TorrentFileEntry { path, size, offset });
@@ -214,7 +259,9 @@ fn compute_info_hash(data: &[u8]) -> Result<[u8; 20]> {
 
     // Skip 'd'
     let _root_start = decoder.position();
-    let _root = decoder.decode().map_err(|e| CoreError::BencodeInvalid(format!("root: {}", e)))?;
+    let _root = decoder
+        .decode()
+        .map_err(|e| CoreError::BencodeInvalid(format!("root: {}", e)))?;
 
     // Re-scan raw bytes to find info dict span
     // Simple approach: scan for the info key bytes
@@ -247,7 +294,10 @@ mod tests {
     fn test_info_hash_computation() {
         // Basic sanity: encode a fake info dict and hash it
         let info_bytes = b"d6:lengthi1024e4:name4:teste";
-        let torrent = format!("d8:announce18:http://tracker.test4:info{}e", std::str::from_utf8(info_bytes).unwrap());
+        let torrent = format!(
+            "d8:announce18:http://tracker.test4:info{}e",
+            std::str::from_utf8(info_bytes).unwrap()
+        );
         let mut hasher = Sha1::new();
         hasher.update(info_bytes);
         let expected: [u8; 20] = hasher.finalize().into();

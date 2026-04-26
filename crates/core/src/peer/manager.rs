@@ -1,9 +1,8 @@
 use crate::error::Result;
-use crate::peer::session::{PeerCommand, PeerEvent, PeerSession};
+use crate::peer::session::{PeerEvent, PeerSession};
 use crate::tracker::TrackerPeer;
 use std::collections::{HashSet, VecDeque};
 use std::net::SocketAddr;
-use std::sync::Arc;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 
@@ -27,7 +26,7 @@ impl PeerManager {
         max_connections: usize,
         event_tx: mpsc::Sender<PeerEvent>,
     ) -> Self {
-        let max_conns = (max_connections).max(200).min(500); // Force 200-500 concurrent peers
+        let max_conns = max_connections.clamp(200, 500); // Force 200-500 concurrent peers
         Self {
             info_hash,
             peer_id,

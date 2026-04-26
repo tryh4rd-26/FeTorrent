@@ -132,11 +132,32 @@ fn validate_save_path(path_str: &str) -> Result<std::path::PathBuf, String> {
 
 pub async fn select_directory() -> impl IntoResponse {
     let chosen = tokio::task::spawn_blocking(|| {
-        let start_dir = dirs::download_dir()
-            .or_else(dirs::home_dir)
-            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        #[cfg(target_os = "macos")]
+        {
+            let output = std::process::Command::new("osascript")
+                .arg("-e")
+                .arg("POSIX path of (choose folder)")
+                .output();
 
-        rfd::FileDialog::new().set_directory(start_dir).pick_folder()
+            if let Ok(out) = output {
+                if out.status.success() {
+                    let path_str = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    if !path_str.is_empty() {
+                        return Some(std::path::PathBuf::from(path_str));
+                    }
+                }
+            }
+            None
+        }
+        
+        #[cfg(not(target_os = "macos"))]
+        {
+            let start_dir = dirs::download_dir()
+                .or_else(dirs::home_dir)
+                .unwrap_or_else(|| std::path::PathBuf::from("."));
+
+            rfd::FileDialog::new().set_directory(start_dir).pick_folder()
+        }
     })
     .await;
 

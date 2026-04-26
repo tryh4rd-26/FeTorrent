@@ -7,10 +7,9 @@
 //! info_hash = 20 bytes
 //! peer_id = 20 bytes
 
-use std::io::Error as IoError;
+use crate::error::{CoreError, Result};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use crate::error::{CoreError, Result};
 
 pub const HANDSHAKE_LEN: usize = 68;
 pub const PROTOCOL_STRING: &[u8; 19] = b"BitTorrent protocol";
@@ -46,12 +45,15 @@ impl Handshake {
         if buf.len() < HANDSHAKE_LEN {
             return Err(CoreError::PeerHandshake("buffer too small".into()));
         }
-        
+
         let pstrlen = buf[0];
         if pstrlen != 19 {
-            return Err(CoreError::PeerHandshake(format!("invalid pstrlen: {}", pstrlen)));
+            return Err(CoreError::PeerHandshake(format!(
+                "invalid pstrlen: {}",
+                pstrlen
+            )));
         }
-        
+
         if &buf[1..20] != PROTOCOL_STRING {
             return Err(CoreError::PeerHandshake("invalid protocol string".into()));
         }
@@ -65,26 +67,38 @@ impl Handshake {
         let mut peer_id = [0u8; 20];
         peer_id.copy_from_slice(&buf[48..68]);
 
-        Ok(Self { info_hash, peer_id, reserved })
+        Ok(Self {
+            info_hash,
+            peer_id,
+            reserved,
+        })
     }
 
     /// Perform a full handshake transaction with a peer.
     pub async fn exchange(stream: &mut TcpStream, own_handshake: &Handshake) -> Result<Handshake> {
         // Send our handshake
         let bytes = own_handshake.to_bytes();
-        stream.write_all(&bytes).await.map_err(Into::<CoreError>::into)?;
+        stream
+            .write_all(&bytes)
+            .await
+            .map_err(Into::<CoreError>::into)?;
 
         // Read peer's handshake
         let mut resp = [0u8; HANDSHAKE_LEN];
-        stream.read_exact(&mut resp).await.map_err(Into::<CoreError>::into)?;
+        stream
+            .read_exact(&mut resp)
+            .await
+            .map_err(Into::<CoreError>::into)?;
 
         let peer_handshake = Handshake::from_bytes(&resp)?;
 
         // Verify info hash matches
         if peer_handshake.info_hash != own_handshake.info_hash {
-            return Err(CoreError::PeerHandshake(
-                format!("info_hash mismatch! expected {}, got {}", hex::encode(own_handshake.info_hash), hex::encode(peer_handshake.info_hash))
-            ));
+            return Err(CoreError::PeerHandshake(format!(
+                "info_hash mismatch! expected {}, got {}",
+                hex::encode(own_handshake.info_hash),
+                hex::encode(peer_handshake.info_hash)
+            )));
         }
 
         Ok(peer_handshake)

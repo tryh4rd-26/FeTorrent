@@ -3,8 +3,7 @@
 //! Note: Full Kademlia routing table implementation is extensive.
 //! This module provides the framework and basic KRPC bindings.
 
-use std::collections::HashMap;
-use crate::bencode::{self, BValue};
+use crate::bencode::{self};
 use crate::error::{CoreError, Result};
 
 pub struct DhtNode {
@@ -26,9 +25,12 @@ impl DhtNode {
     /// Parse an incoming KRPC query/response dictionary.
     pub fn parse_krpc(data: &[u8]) -> Result<KrpcMessage> {
         let root = bencode::decode(data)?;
-        let dict = root.as_dict().ok_or(CoreError::Other("DHT non-dict".into()))?;
+        let dict = root
+            .as_dict()
+            .ok_or(CoreError::Other("DHT non-dict".into()))?;
 
-        let msg_type = dict.get(b"y".as_ref())
+        let msg_type = dict
+            .get(b"y".as_ref())
             .and_then(|v| v.as_str())
             .ok_or(CoreError::Other("DHT missing y".into()))?;
 

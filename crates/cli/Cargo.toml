@@ -1,10 +1,13 @@
 [package]
 name = "fetorrent"
 version.workspace = true
+description.workspace = true
+license.workspace = true
+repository.workspace = true
 edition.workspace = true
 
 [dependencies]
-fetorrent-core = { path = "../core" }
+fetorrent-core = { version = "0.2.0", path = "../core" }
 
 tokio = { workspace = true }
 reqwest = { version = "0.12", features = ["json", "multipart"] }

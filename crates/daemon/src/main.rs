@@ -29,10 +29,8 @@ struct Args {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let log_path = FeConfig::resolve_log_path();
-    let file_appender = tracing_appender::rolling::never(
-        log_path.parent().unwrap(), 
-        log_path.file_name().unwrap()
-    );
+    let file_appender =
+        tracing_appender::rolling::never(log_path.parent().unwrap(), log_path.file_name().unwrap());
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     tracing_subscriber::registry()
@@ -87,9 +85,9 @@ async fn main() -> anyhow::Result<()> {
 }
 
 fn get_download_path(dir_str: &str) -> PathBuf {
-    if dir_str.starts_with("~/") {
+    if let Some(stripped) = dir_str.strip_prefix("~/") {
         if let Some(home) = dirs::home_dir() {
-            return home.join(&dir_str[2..]);
+            return home.join(stripped);
         }
     }
     PathBuf::from(dir_str)

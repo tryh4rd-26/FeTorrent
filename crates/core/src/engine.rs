@@ -80,10 +80,17 @@ impl Engine {
                         } else {
                             0.0
                         };
-                        t.info.num_peers = update.num_peers;
-                        t.info.num_seeds = update.num_seeds;
                         t.info.num_leechers = update.num_leechers;
                         t.info.status = update.status;
+
+                        // Append logs and keep a history (e.g., last 100)
+                        if !update.logs.is_empty() {
+                            t.info.logs.extend(update.logs);
+                            if t.info.logs.len() > 100 {
+                                let start = t.info.logs.len() - 100;
+                                t.info.logs.drain(0..start);
+                            }
+                        }
 
                         let left = t.info.total_size.saturating_sub(t.info.downloaded);
                         t.info.eta_secs = if t.info.dl_speed > 0 {
@@ -212,6 +219,7 @@ impl Engine {
             piece_length,
             files: files.clone(),
             trackers: trackers.clone(),
+            logs: Vec::new(),
             save_path: save_path.clone(),
             added_at: Utc::now(),
         };

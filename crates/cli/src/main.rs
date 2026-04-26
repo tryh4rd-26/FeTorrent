@@ -102,7 +102,7 @@ async fn main() -> anyhow::Result<()> {
         print_banner();
     }
 
-    if !matches!(cli.command, Commands::Run { .. } | Commands::Log { .. }) {
+    if !matches!(cli.command, Commands::Run { .. } | Commands::Log { .. } | Commands::Kill) {
         ensure_daemon_available(&cli.url).await?;
     }
 
@@ -264,7 +264,13 @@ async fn main() -> anyhow::Result<()> {
             } else {
                 println!("Starting FeTorrent daemon in background...");
                 start_daemon_for_url(&cli.url)?;
-                println!("{}", "Daemon initialized.".green().bold());
+                
+                if wait_for_daemon(&cli.url, Duration::from_secs(5)).await {
+                    println!("{}", "Daemon initialized and ready.".green().bold());
+                } else {
+                    eprintln!("{}", "Error: Daemon failed to become ready. Check logs with 'fetorrent log'.".red().bold());
+                    std::process::exit(1);
+                }
 
                 let ui_url = cli.url.replace("/api/v1", "");
                 println!("Web UI: {}", ui_url.bright_cyan().underline());

@@ -1,10 +1,13 @@
 use axum::{
-    extract::{ws::{Message, WebSocket, WebSocketUpgrade}, State},
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        State,
+    },
     response::IntoResponse,
 };
+use fetorrent_core::Engine;
 use futures::{sink::SinkExt, stream::StreamExt};
 use std::sync::Arc;
-use fetorrent_core::Engine;
 
 pub async fn ws_handler(
     ws: WebSocketUpgrade,

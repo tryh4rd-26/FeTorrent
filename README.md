@@ -1,136 +1,85 @@
 # FeTorrent
 
-A modern BitTorrent client and engine built in Rust, with a daemon backend, CLI, and web UI.
+FeTorrent is a BitTorrent engine and suite of client utilities implemented in the Rust programming language. It follows a modular architecture composed of a high-performance asynchronous core, a REST/WebSocket API, a background daemon, and both CLI and Web interfaces.
 
-## What is in this repo
+The project is designed for users who require a lightweight, robust, and extensible BitTorrent client that can be managed across diverse environments.
 
-FeTorrent is a workspace with four Rust crates and one frontend app:
+---
 
-- crates/core: BitTorrent engine (peer sessions, piece management, trackers, magnet metadata)
-- crates/api: Axum HTTP/WebSocket API used by CLI and UI
-- crates/daemon: Long-running process hosting the engine and API
-- crates/cli: Command-line client for adding, listing, and controlling torrents
-- ui: React + Vite dashboard
+## Technical Architecture
 
-## Features
+FeTorrent is structured as a workspace of modular crates to ensure separation of concerns and optimal performance.
 
-- Magnet link support
-- .torrent file support
-- Real-time updates over WebSocket
-- CLI and web UI controls
-- Configurable download directory and limits
-- Pause, resume, remove torrent lifecycle actions
+*   **`fetorrent-core`**: The foundational engine implementing the BitTorrent protocol, peer wire communication, and piece management using the `Tokio` asynchronous runtime.
+*   **`fetorrent-api`**: An interface layer providing programmatic access to the engine via `Axum`, supporting both traditional REST endpoints and real-time WebSocket events.
+*   **`fetorrent-daemon`**: A headless service that hosts the core engine and API, designed for continuous operation on servers or workstations.
+*   **`fetorrent`**: A unified command-line interface for local and remote daemon management.
 
-## Quick Start
+---
 
-### Prerequisites
+## Installation
 
-- Rust toolchain (stable)
-- Node.js 18+ (for UI development)
-
-### Build
+### Cargo
+FeTorrent can be installed from the crates.io registry:
 
 ```bash
-cargo build --release
+cargo install fetorrent
 ```
 
-### Run daemon
+### Manual Build
+To build the project from the source repository:
 
-```bash
-./target/release/fetorrent-daemon --port 6977
-```
+1.  Clone the repository:
+    ```bash
+    git clone https://github.com/tryh4rd-26/FeTorrent
+    ```
+2.  Build and install all components:
+    ```bash
+    cd FeTorrent
+    make install
+    ```
+    *Requirements: Rust stable toolchain, Node.js v18+, and npm.*
 
-or via CLI:
+---
 
-```bash
-./target/release/fetorrent run --port 6977
-```
+## Command Line Interface Usage
 
-### Add a torrent (CLI)
+The `fetorrent` utility is the primary tool for interacting with the background daemon.
 
-```bash
-./target/release/fetorrent add "magnet:?xt=urn:btih:..."
-```
+### Daemon Management
+*   **`run`**: Launches the daemon process in the foreground.
+*   **`kill`**: Terminates the running background daemon process.
+*   **`log`**: Streams the internal daemon logs to the terminal for debugging and monitoring.
+*   **`help`**: Displays the manual for the CLI or specific subcommands.
 
-You can also pass a download folder directly:
+### Torrent Management
+*   **`add [URI]`**: Ingests a new torrent into the session. Accepts Magnet URIs or file system paths to `.torrent` files.
+*   **`list`**: Displays a summary table of all torrents in the current session, including transfer rates and status.
+*   **`info [ID]`**: Provides detailed metadata and swarm statistics for a specific torrent.
+*   **`pause [ID]`**: Halts all network activity for the specified torrent.
+*   **`resume [ID]`**: Recommences network activity for a paused torrent.
+*   **`remove [ID]`**: Deletes the torrent from the session. Use the `--delete` flag to remove the associated data from disk.
+*   **`stats`**: Outputs global statistics for the daemon session, including aggregate speeds and total data transferred.
 
-```bash
-./target/release/fetorrent add "magnet:?xt=urn:btih:..." --dir "/absolute/path"
-```
+---
 
-### List torrents
+## Web Graphical User Interface
 
-```bash
-./target/release/fetorrent list
-```
+The Web GUI is served by the daemon and provides a visual dashboard for monitoring and configuration. It is accessible by default at `http://localhost:6977`.
 
-### Web UI
+*   **Real-time Monitoring**: Visual speed graphs and piece-map progress tracking.
+*   **Activity Logging**: A diagnostic feed capturing piece-level verification events and tracker communications.
+*   **Swarm Analysis**: Detailed views for file manifests, tracker health, and peer connectivity.
+*   **Adaptive Theme**: Support for light and dark color schemes based on system preferences.
 
-When daemon is running on port 6977, open:
-
-- http://127.0.0.1:6977
-
-## Download Location Selection
-
-FeTorrent supports choosing download location in both interfaces:
-
-- CLI: add command asks for location when --dir is not provided
-- UI: Add Torrent dialog and Settings both support selecting or entering directory
-
-Note: In some desktop/browser setups, native folder picker may not be available from the daemon process. UI falls back to manual path input automatically.
+---
 
 ## Configuration
 
-Configuration is stored in your OS config directory under fetorrent/config.toml.
+Configuration is managed via a `config.toml` file located in the standard user configuration directory (e.g., `~/.config/fetorrent/` on Unix-like systems). Key configurable parameters include network binding, default download directories, and global bandwidth limits.
 
-Key fields:
-
-- server.bind
-- server.port
-- downloads.directory
-- downloads.max_peers
-- limits.download_kbps
-- limits.upload_kbps
-
-## Project Structure
-
-```text
-crates/
-  core/
-  api/
-  cli/
-  daemon/
-ui/
-```
-
-## Development
-
-### Rust
-
-```bash
-cargo check
-cargo test
-```
-
-### UI
-
-```bash
-cd ui
-npm install
-npm run dev
-```
-
-Production build:
-
-```bash
-cd ui
-npm run build
-```
-
-## Current Status
-
-This project is actively evolving. Core downloading, metadata exchange, and control flows are implemented and used by both CLI and UI.
+---
 
 ## License
 
-MIT
+This project is licensed under the MIT License.

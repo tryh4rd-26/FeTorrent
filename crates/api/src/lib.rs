@@ -1,5 +1,5 @@
 pub mod routes;
-pub mod ws;
 pub mod server;
+pub mod ws;
 
 pub use server::start_server;

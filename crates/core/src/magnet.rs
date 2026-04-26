@@ -20,7 +20,9 @@ impl MagnetLink {
     pub fn parse(uri: &str) -> Result<Self> {
         let uri = uri.trim();
         if !uri.starts_with("magnet:?") {
-            return Err(CoreError::MagnetInvalid("must start with 'magnet:?'".into()));
+            return Err(CoreError::MagnetInvalid(
+                "must start with 'magnet:?'".into(),
+            ));
         }
 
         let query = &uri["magnet:?".len()..];
@@ -33,8 +35,8 @@ impl MagnetLink {
             .map(|(_, v)| v.as_str())
             .ok_or_else(|| CoreError::MagnetInvalid("missing xt parameter".into()))?;
 
-        let hash_str = if xt.starts_with("urn:btih:") {
-            &xt["urn:btih:".len()..]
+        let hash_str = if let Some(hash) = xt.strip_prefix("urn:btih:") {
+            hash
         } else {
             return Err(CoreError::MagnetInvalid(format!("unsupported xt: {}", xt)));
         };
@@ -57,7 +59,12 @@ impl MagnetLink {
             .find(|(k, _)| k == "xl")
             .and_then(|(_, v)| v.parse::<u64>().ok());
 
-        Ok(MagnetLink { info_hash, display_name, trackers, exact_length })
+        Ok(MagnetLink {
+            info_hash,
+            display_name,
+            trackers,
+            exact_length,
+        })
     }
 
     pub fn info_hash_hex(&self) -> String {
@@ -94,7 +101,9 @@ fn parse_query_string(s: &str) -> Vec<(String, String)> {
 }
 
 fn url_decode(s: &str) -> String {
-    urlencoding::decode(s).map(|c| c.into_owned()).unwrap_or_else(|_| s.to_string())
+    urlencoding::decode(s)
+        .map(|c| c.into_owned())
+        .unwrap_or_else(|_| s.to_string())
 }
 
 /// Decode a hex (40 chars) or base32 (32 chars) info hash.
@@ -104,10 +113,15 @@ fn decode_info_hash(s: &str) -> Result<[u8; 20]> {
         40 => {
             let bytes = hex::decode(s)
                 .map_err(|_| CoreError::MagnetInvalid(format!("invalid hex hash: {}", s)))?;
-            bytes.try_into().map_err(|_| CoreError::MagnetInvalid("hash wrong length".into()))
+            bytes
+                .try_into()
+                .map_err(|_| CoreError::MagnetInvalid("hash wrong length".into()))
         }
         32 => decode_base32(s),
-        _ => Err(CoreError::MagnetInvalid(format!("hash length {} invalid (expected 40 or 32)", s.len()))),
+        _ => Err(CoreError::MagnetInvalid(format!(
+            "hash length {} invalid (expected 40 or 32)",
+            s.len()
+        ))),
     }
 }
 
@@ -120,8 +134,9 @@ fn decode_base32(s: &str) -> Result<[u8; 20]> {
     let mut out = Vec::with_capacity(20);
 
     for c in s.bytes() {
-        let val = ALPHABET.iter().position(|&x| x == c)
-            .ok_or_else(|| CoreError::MagnetInvalid(format!("invalid base32 char: {}", c as char)))? as u64;
+        let val = ALPHABET.iter().position(|&x| x == c).ok_or_else(|| {
+            CoreError::MagnetInvalid(format!("invalid base32 char: {}", c as char))
+        })? as u64;
         bits = (bits << 5) | val;
         bit_count += 5;
         if bit_count >= 8 {
@@ -132,7 +147,10 @@ fn decode_base32(s: &str) -> Result<[u8; 20]> {
     }
 
     if out.len() != 20 {
-        return Err(CoreError::MagnetInvalid(format!("base32 decoded to {} bytes, expected 20", out.len())));
+        return Err(CoreError::MagnetInvalid(format!(
+            "base32 decoded to {} bytes, expected 20",
+            out.len()
+        )));
     }
     Ok(out.try_into().unwrap())
 }
@@ -146,7 +164,10 @@ mod tests {
     #[test]
     fn test_parse_magnet() {
         let m = MagnetLink::parse(SAMPLE_MAGNET).unwrap();
-        assert_eq!(m.info_hash_hex(), "dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c");
+        assert_eq!(
+            m.info_hash_hex(),
+            "dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c"
+        );
         assert_eq!(m.display_name.as_deref(), Some("Big+Buck+Bunny"));
         assert_eq!(m.trackers.len(), 1);
     }

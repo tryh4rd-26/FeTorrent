@@ -4,12 +4,12 @@
 //!   1. Send connect request  → receive connect response (connection_id)
 //!   2. Send announce request → receive announce response (peers)
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use super::{AnnounceEvent, AnnounceRequest, AnnounceResponse, TrackerPeer};
+use crate::error::{CoreError, Result};
+use rand::Rng;
+use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
 use tokio::net::UdpSocket;
-use rand::Rng;
-use crate::error::{CoreError, Result};
-use super::{AnnounceEvent, AnnounceRequest, AnnounceResponse, TrackerPeer};
 
 const CONNECT_MAGIC: u64 = 0x41727101980;
 const ACTION_CONNECT: u32 = 0;
@@ -22,7 +22,9 @@ pub struct UdpTracker {
 
 impl UdpTracker {
     pub fn from_url(url: &str) -> Result<Self> {
-        Ok(Self { url: url.to_string() })
+        Ok(Self {
+            url: url.to_string(),
+        })
     }
 }
 
@@ -31,14 +33,20 @@ impl super::Tracker for UdpTracker {
     async fn announce(&self, req: AnnounceRequest) -> Result<AnnounceResponse> {
         // Resolve host
         let host = self.url.trim_start_matches("udp://");
-        let addrs = tokio::net::lookup_host(host).await
+        let addrs = tokio::net::lookup_host(host)
+            .await
             .map_err(|e| CoreError::TrackerUdp(format!("lookup: {}", e)))?;
-        let addr = addrs.into_iter().next()
+        let addr = addrs
+            .into_iter()
+            .next()
             .ok_or_else(|| CoreError::TrackerUdp("no addresses found".into()))?;
 
-        let socket = UdpSocket::bind("0.0.0.0:0").await
+        let socket = UdpSocket::bind("0.0.0.0:0")
+            .await
             .map_err(|e| CoreError::TrackerUdp(format!("bind: {}", e)))?;
-        socket.connect(addr).await
+        socket
+            .connect(addr)
+            .await
             .map_err(|e| CoreError::TrackerUdp(format!("connect: {}", e)))?;
 
         // Step 1: connect
@@ -54,7 +62,6 @@ impl super::Tracker for UdpTracker {
 }
 
 impl UdpTracker {
-
     async fn do_connect(&self, socket: &UdpSocket) -> Result<u64> {
         let transaction_id: u32 = rand::thread_rng().gen();
         let mut buf = [0u8; 16];
@@ -70,15 +77,26 @@ impl UdpTracker {
         let action = u32::from_be_bytes(resp[0..4].try_into().unwrap());
         let resp_tid = u32::from_be_bytes(resp[4..8].try_into().unwrap());
         if action != ACTION_CONNECT {
-            return Err(CoreError::TrackerUdp(format!("expected action 0, got {}", action)));
+            return Err(CoreError::TrackerUdp(format!(
+                "expected action 0, got {}",
+                action
+            )));
         }
         if resp_tid != transaction_id {
-            return Err(CoreError::TrackerUdp(format!("connect: transaction ID mismatch (sent {}, got {})", transaction_id, resp_tid)));
+            return Err(CoreError::TrackerUdp(format!(
+                "connect: transaction ID mismatch (sent {}, got {})",
+                transaction_id, resp_tid
+            )));
         }
         Ok(u64::from_be_bytes(resp[8..16].try_into().unwrap()))
     }
 
-    async fn do_announce(&self, socket: &UdpSocket, connection_id: u64, req: &AnnounceRequest) -> Result<AnnounceResponse> {
+    async fn do_announce(
+        &self,
+        socket: &UdpSocket,
+        connection_id: u64,
+        req: &AnnounceRequest,
+    ) -> Result<AnnounceResponse> {
         let transaction_id: u32 = rand::thread_rng().gen();
         let mut buf = Vec::with_capacity(98);
         buf.extend_from_slice(&connection_id.to_be_bytes());
@@ -98,7 +116,7 @@ impl UdpTracker {
         buf.extend_from_slice(&event_code.to_be_bytes());
         buf.extend_from_slice(&0u32.to_be_bytes()); // IP (default)
         buf.extend_from_slice(&rand::thread_rng().gen::<u32>().to_be_bytes()); // key
-        buf.extend_from_slice(&(req.num_want as i32).to_be_bytes());
+        buf.extend_from_slice(&req.num_want.to_be_bytes());
         buf.extend_from_slice(&req.port.to_be_bytes());
 
         send_with_timeout(socket, &buf, TIMEOUT).await?;
@@ -113,7 +131,10 @@ impl UdpTracker {
 
         let action = u32::from_be_bytes(resp[0..4].try_into().unwrap());
         if action != ACTION_ANNOUNCE {
-            return Err(CoreError::TrackerUdp(format!("expected action 1, got {}", action)));
+            return Err(CoreError::TrackerUdp(format!(
+                "expected action 1, got {}",
+                action
+            )));
         }
 
         let interval = u32::from_be_bytes(resp[8..12].try_into().unwrap());
@@ -124,10 +145,18 @@ impl UdpTracker {
         for chunk in resp[20..].chunks_exact(6) {
             let ip = Ipv4Addr::new(chunk[0], chunk[1], chunk[2], chunk[3]);
             let port = u16::from_be_bytes([chunk[4], chunk[5]]);
-            peers.push(TrackerPeer { ip: IpAddr::V4(ip), port });
+            peers.push(TrackerPeer {
+                ip: IpAddr::V4(ip),
+                port,
+            });
         }
 
-        Ok(AnnounceResponse { interval, seeders, leechers, peers })
+        Ok(AnnounceResponse {
+            interval,
+            seeders,
+            leechers,
+            peers,
+        })
     }
 }
 

@@ -31,8 +31,8 @@ dist: build-ui build
 # Install globally to user space
 install: build-ui build
 	mkdir -p ~/.cargo/bin
-	cp target/release/fetorrent ~/.cargo/bin/
-	cp target/release/fetorrent-daemon ~/.cargo/bin/
+	install -m 755 target/release/fetorrent ~/.cargo/bin/
+	install -m 755 target/release/fetorrent-daemon ~/.cargo/bin/
 	mkdir -p ~/.local/share/fetorrent/ui
 	cp -r ui/dist/* ~/.local/share/fetorrent/ui/
 	@echo "FeTorrent installed successfully!"

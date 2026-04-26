@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use crate::error::Result;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FeConfig {
@@ -50,7 +50,7 @@ impl FeConfig {
         if let Some(config_dir) = dirs::config_dir() {
             let config_path = config_dir.join("fetorrent").join("config.toml");
             let _ = std::fs::create_dir_all(config_dir.join("fetorrent"));
-            let content = toml::to_string_pretty(self).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            let content = toml::to_string_pretty(self).map_err(std::io::Error::other)?;
             std::fs::write(config_path, content)?;
         }
         Ok(())
@@ -72,7 +72,7 @@ impl FeConfig {
 
     pub fn resolve_log_path() -> std::path::PathBuf {
         let base = dirs::data_local_dir()
-            .or_else(|| dirs::data_dir())
+            .or_else(dirs::data_dir)
             .unwrap_or_else(|| std::path::PathBuf::from("."));
         let log_dir = base.join("fetorrent");
         let _ = std::fs::create_dir_all(&log_dir);

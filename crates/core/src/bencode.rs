@@ -8,10 +8,10 @@
 //!
 //! SECURITY: Added depth limit and allocation bounds checks.
 
-use std::collections::BTreeMap;
 use crate::error::CoreError;
+use std::collections::BTreeMap;
 
-const MAX_DECODE_DEPTH: usize = 100;        // Prevent DoS from nested structures
+const MAX_DECODE_DEPTH: usize = 100; // Prevent DoS from nested structures
 const MAX_BYTES_ALLOCATION: usize = 100 * 1024 * 1024; // 100MB limit per value
 
 /// A decoded bencode value.
@@ -71,12 +71,16 @@ impl BValue {
 pub struct Decoder<'a> {
     buf: &'a [u8],
     pos: usize,
-    depth: usize,  // Track recursion depth
+    depth: usize, // Track recursion depth
 }
 
 impl<'a> Decoder<'a> {
     pub fn new(buf: &'a [u8]) -> Self {
-        Self { buf, pos: 0, depth: 0 }
+        Self {
+            buf,
+            pos: 0,
+            depth: 0,
+        }
     }
 
     fn peek(&self) -> Option<u8> {
@@ -84,7 +88,11 @@ impl<'a> Decoder<'a> {
     }
 
     fn consume(&mut self) -> Result<u8, CoreError> {
-        let b = self.buf.get(self.pos).copied().ok_or(CoreError::BencodePrematureEnd)?;
+        let b = self
+            .buf
+            .get(self.pos)
+            .copied()
+            .ok_or(CoreError::BencodePrematureEnd)?;
         self.pos += 1;
         Ok(b)
     }
@@ -110,7 +118,10 @@ impl<'a> Decoder<'a> {
             b'l' => self.decode_list(),
             b'd' => self.decode_dict(),
             b'0'..=b'9' => self.decode_bytes(),
-            b => Err(CoreError::BencodeInvalid(format!("unexpected byte: {}", b as char))),
+            b => Err(CoreError::BencodeInvalid(format!(
+                "unexpected byte: {}",
+                b as char
+            ))),
         };
         self.depth -= 1;
         result
@@ -132,7 +143,9 @@ impl<'a> Decoder<'a> {
         }
         let s = std::str::from_utf8(&self.buf[start..self.pos])
             .map_err(|_| CoreError::BencodeInvalid("int not utf8".into()))?;
-        let n: i64 = s.parse().map_err(|_| CoreError::BencodeInvalid(format!("bad int: {}", s)))?;
+        let n: i64 = s
+            .parse()
+            .map_err(|_| CoreError::BencodeInvalid(format!("bad int: {}", s)))?;
         self.expect(b'e')?;
         Ok(BValue::Int(n))
     }
@@ -144,7 +157,9 @@ impl<'a> Decoder<'a> {
             return Err(CoreError::BencodeInvalid("allocation too large".into()));
         }
         self.expect(b':')?;
-        let end = self.pos.checked_add(len)
+        let end = self
+            .pos
+            .checked_add(len)
             .ok_or(CoreError::BencodeInvalid("position overflow".into()))?;
         if end > self.buf.len() {
             return Err(CoreError::BencodePrematureEnd);
@@ -161,7 +176,8 @@ impl<'a> Decoder<'a> {
         }
         let s = std::str::from_utf8(&self.buf[start..self.pos])
             .map_err(|_| CoreError::BencodeInvalid("decimal not utf8".into()))?;
-        s.parse().map_err(|_| CoreError::BencodeInvalid(format!("bad decimal: {}", s)))
+        s.parse()
+            .map_err(|_| CoreError::BencodeInvalid(format!("bad decimal: {}", s)))
     }
 
     fn decode_list(&mut self) -> Result<BValue, CoreError> {
@@ -292,5 +308,28 @@ mod tests {
         let v = decode(original).unwrap();
         let re = encode(&v);
         assert_eq!(decode(&re).unwrap(), v);
+    }
+
+    #[test]
+    fn test_recursion_limit() {
+        let mut deep = String::new();
+        for _ in 0..110 {
+            deep.push('l');
+        }
+        for _ in 0..110 {
+            deep.push('e');
+        }
+        let result = decode(deep.as_bytes());
+        assert!(result.is_err());
+        assert!(format!("{:?}", result.err()).contains("Depth limit exceeded"));
+    }
+
+    #[test]
+    fn test_allocation_limit() {
+        // 100MB + 1 byte
+        let huge = format!("{}:", 100 * 1024 * 1024 + 1);
+        let result = decode(huge.as_bytes());
+        assert!(result.is_err());
+        assert!(format!("{:?}", result.err()).contains("allocation too large"));
     }
 }
