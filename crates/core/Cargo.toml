@@ -1,9 +1,10 @@
 [package]
 name = "fetorrent-core"
 version.workspace = true
-description.workspace = true
+description = "Core engine implementation for the FeTorrent BitTorrent suite."
 license.workspace = true
 repository.workspace = true
+readme.workspace = true
 edition.workspace = true
 
 [dependencies]

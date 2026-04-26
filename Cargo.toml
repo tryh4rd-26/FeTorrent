@@ -8,12 +8,13 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.2.0"
+version = "0.2.2"
 edition = "2021"
 authors = ["FeTorrent Contributors"]
 description = "A modern, high-performance BitTorrent engine and client written in Rust."
 license = "MIT"
 repository = "https://github.com/tryh4rd-26/FeTorrent"
+readme = "README.md"
 
 [workspace.dependencies]
 # Async runtime

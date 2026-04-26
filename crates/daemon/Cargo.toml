@@ -1,14 +1,15 @@
 [package]
 name = "fetorrent-daemon"
 version.workspace = true
-description.workspace = true
+description = "Background service and web host for the FeTorrent BitTorrent suite."
 license.workspace = true
 repository.workspace = true
+readme.workspace = true
 edition.workspace = true
 
 [dependencies]
-fetorrent-core = { version = "0.2.0", path = "../core" }
-fetorrent-api = { version = "0.2.0", path = "../api" }
+fetorrent-core = { version = "0.2.2", path = "../core" }
+fetorrent-api = { version = "0.2.2", path = "../api" }
 
 tokio = { workspace = true }
 tracing = { workspace = true }

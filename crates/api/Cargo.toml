@@ -1,13 +1,14 @@
 [package]
 name = "fetorrent-api"
 version.workspace = true
-description.workspace = true
+description = "API and protocol bridge for the FeTorrent BitTorrent suite."
 license.workspace = true
 repository.workspace = true
+readme.workspace = true
 edition.workspace = true
 
 [dependencies]
-fetorrent-core = { version = "0.2.0", path = "../core" }
+fetorrent-core = { version = "0.2.2", path = "../core" }
 
 tokio = { workspace = true }
 axum = { workspace = true }
