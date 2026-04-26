@@ -3,7 +3,6 @@
 //! Manages torrents, peer connections, trackers, and storage.
 
 use chrono::Utc;
-use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
 use tracing::debug;
@@ -13,7 +12,7 @@ use crate::magnet::MagnetLink;
 use crate::models::{GlobalStats, TorrentEvent, TorrentInfo, TorrentStatus};
 use crate::storage::Storage;
 use crate::torrent::TorrentFile;
-use crate::torrent_task::{TorrentCommand, TorrentTask};
+use crate::torrent_task::{TorrentCommand, TorrentTask, TorrentTaskParams};
 
 pub struct Engine {
     // Non-blocking concurrent access to torrents
@@ -69,7 +68,10 @@ impl Engine {
                         }
 
                         let delta_dl = update.downloaded.saturating_sub(t.info.downloaded);
-                        t.info.dl_speed = delta_dl;
+                        let delta_ul = update.uploaded.saturating_sub(t.info.uploaded);
+                        // Exponential smoothing to avoid 0/non-0 jitter in UI/CLI speed display.
+                        t.info.dl_speed = t.info.dl_speed.saturating_mul(3).saturating_add(delta_dl) / 4;
+                        t.info.ul_speed = t.info.ul_speed.saturating_mul(3).saturating_add(delta_ul) / 4;
 
                         t.info.downloaded = update.downloaded;
                         t.info.uploaded = update.uploaded;
@@ -100,7 +102,6 @@ impl Engine {
                 };
 
                 if let Some(info) = info {
-
                     // Broadcast update to UI
                     let _ = engine_clone.event_tx.send(TorrentEvent::StatsUpdate {
                         torrents: vec![info],
@@ -119,7 +120,11 @@ impl Engine {
     }
 
     /// Add a torrent from magnet or .torrent bytes.
-    pub async fn add_torrent(&self, mode: AddMode, custom_save_path: Option<String>) -> Result<usize> {
+    pub async fn add_torrent(
+        &self,
+        mode: AddMode,
+        custom_save_path: Option<String>,
+    ) -> Result<usize> {
         let (name, info_hash, magnet_uri, total_size, num_pieces, piece_length, files, trackers) =
             match mode {
                 AddMode::Magnet(ref uri) => {
@@ -161,19 +166,29 @@ impl Engine {
             };
 
         // Check if already exists
-        if self.torrents.iter().any(|entry| entry.value().info.info_hash == info_hash) {
+        if self
+            .torrents
+            .iter()
+            .any(|entry| entry.value().info.info_hash == info_hash)
+        {
             return Err(CoreError::TorrentAlreadyExists);
         }
 
         let id = self
             .next_id
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        
+
         let save_path = if let Some(p) = custom_save_path {
-            std::path::PathBuf::from(p).join(&name).to_string_lossy().to_string()
+            std::path::PathBuf::from(p)
+                .join(&name)
+                .to_string_lossy()
+                .to_string()
         } else {
             let config = self.config.read().unwrap();
-            std::path::PathBuf::from(&config.downloads.directory).join(&name).to_string_lossy().to_string()
+            std::path::PathBuf::from(&config.downloads.directory)
+                .join(&name)
+                .to_string_lossy()
+                .to_string()
         };
 
         let info = TorrentInfo {
@@ -223,12 +238,14 @@ impl Engine {
             id,
             info.get_info_hash_bytes()?,
             peer_id,
-            trackers,
-            torrent_file.as_ref(),
-            storage,
-            std::path::PathBuf::from(&info.save_path),
-            command_rx,
-            self.update_tx.clone(),
+            TorrentTaskParams {
+                tracker_infos: trackers,
+                torrent: torrent_file,
+                storage,
+                save_path: std::path::PathBuf::from(&info.save_path),
+                command_rx,
+                update_tx: self.update_tx.clone(),
+            },
         );
 
         tokio::spawn(async move {
@@ -246,7 +263,11 @@ impl Engine {
 
     pub fn get_torrents(&self) -> Vec<TorrentInfo> {
         debug!("engine.get_torrents: fetching torrents");
-        let mut list: Vec<_> = self.torrents.iter().map(|ref_multi| ref_multi.value().info.clone()).collect();
+        let mut list: Vec<_> = self
+            .torrents
+            .iter()
+            .map(|ref_multi| ref_multi.value().info.clone())
+            .collect();
         // Sort by ID to ensure stable ordering
         list.sort_by_key(|t| t.id);
         debug!(count = list.len(), "engine.get_torrents: completed");
@@ -261,33 +282,46 @@ impl Engine {
     }
 
     pub async fn pause_torrent(&self, id: usize) -> Result<()> {
-        let mut t = self.torrents.get_mut(&id).ok_or(CoreError::TorrentNotFound(id))?;
+        let mut t = self
+            .torrents
+            .get_mut(&id)
+            .ok_or(CoreError::TorrentNotFound(id))?;
+        let _ = t.command_tx.send(TorrentCommand::Pause).await;
         t.info.status = TorrentStatus::Paused;
         let info = t.info.clone();
         drop(t); // Release the lock before sending broadcast
-        let _ = self.event_tx.send(TorrentEvent::TorrentUpdated {
-            torrent: info,
-        });
+        let _ = self
+            .event_tx
+            .send(TorrentEvent::TorrentUpdated { torrent: info });
         Ok(())
     }
 
     pub async fn resume_torrent(&self, id: usize) -> Result<()> {
-        let mut t = self.torrents.get_mut(&id).ok_or(CoreError::TorrentNotFound(id))?;
+        let mut t = self
+            .torrents
+            .get_mut(&id)
+            .ok_or(CoreError::TorrentNotFound(id))?;
         if t.info.status == TorrentStatus::Paused
             || matches!(t.info.status, TorrentStatus::Error(_))
         {
+            let _ = t.command_tx.send(TorrentCommand::Resume).await;
             t.info.status = TorrentStatus::Downloading;
             let info = t.info.clone();
             drop(t); // Release the lock before sending broadcast
-            let _ = self.event_tx.send(TorrentEvent::TorrentUpdated {
-                torrent: info,
-            });
+            let _ = self
+                .event_tx
+                .send(TorrentEvent::TorrentUpdated { torrent: info });
         }
         Ok(())
     }
 
     pub async fn remove_torrent(&self, id: usize, delete_files: bool) -> Result<()> {
-        let handle = self.torrents.remove(&id).ok_or(CoreError::TorrentNotFound(id))?.1;
+        let handle = self
+            .torrents
+            .remove(&id)
+            .ok_or(CoreError::TorrentNotFound(id))?
+            .1;
+        let _ = handle.command_tx.send(TorrentCommand::Stop).await;
         let _ = self.event_tx.send(TorrentEvent::TorrentRemoved { id });
 
         if delete_files {
@@ -307,7 +341,7 @@ impl Engine {
     pub fn get_global_stats(&self) -> GlobalStats {
         let mut s = GlobalStats::default();
         debug!("engine.get_global_stats: computing stats");
-        
+
         for ref_multi in self.torrents.iter() {
             let t = ref_multi.value();
             let info = &t.info;
@@ -329,7 +363,10 @@ impl Engine {
         if s.total_downloaded > 0 {
             s.ratio = s.total_uploaded as f32 / s.total_downloaded as f32;
         }
-        debug!(torrents = self.torrents.len(), "engine.get_global_stats: completed");
+        debug!(
+            torrents = self.torrents.len(),
+            "engine.get_global_stats: completed"
+        );
         s
     }
 
@@ -342,7 +379,9 @@ impl Engine {
             let mut config = self.config.write().unwrap();
             *config = new_config.clone();
         }
-        new_config.save().map_err(|e| CoreError::Other(format!("Failed to save config: {}", e)))
+        new_config
+            .save()
+            .map_err(|e| CoreError::Other(format!("Failed to save config: {}", e)))
     }
 
     pub fn tick_simulate(&self) {
@@ -355,8 +394,8 @@ fn generate_peer_id() -> [u8; 20] {
     let mut id = [0u8; 20];
     id[0..8].copy_from_slice(b"-FT0001-");
     let mut rng = rand::thread_rng();
-    for i in 8..20 {
-        id[i] = rng.gen_range(33..126); // Readable ASCII
+    for byte in id.iter_mut().skip(8) {
+        *byte = rng.gen_range(33..126); // Readable ASCII
     }
     id
 }

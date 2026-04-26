@@ -101,7 +101,13 @@ export default function App() {
       const path = await selectDirectory();
       setAddingDir(path);
     } catch (err) {
-      toast.error(err.message || 'Failed to select directory');
+      const fallback = window.prompt('Native picker unavailable. Enter download directory path:', addingDir || settings?.downloads?.directory || '');
+      if (fallback && fallback.trim()) {
+        setAddingDir(fallback.trim());
+        toast.success('Directory set');
+      } else {
+        toast.error(err.message || 'Failed to open directory picker');
+      }
     }
   };
 
@@ -624,7 +630,13 @@ function SettingsView({ settings, onSave }) {
       setFormData(prev => ({ ...prev, downloads: { ...prev.downloads, directory: path } }));
       toast.success("Directory selected");
     } catch (err) {
-      toast.error(err.message || "Failed to select directory");
+      const fallback = window.prompt('Native picker unavailable. Enter download directory path:', formData.downloads.directory || '');
+      if (fallback && fallback.trim()) {
+        setFormData(prev => ({ ...prev, downloads: { ...prev.downloads, directory: fallback.trim() } }));
+        toast.success("Directory selected");
+      } else {
+        toast.error(err.message || "Failed to open directory picker");
+      }
     }
   };
 

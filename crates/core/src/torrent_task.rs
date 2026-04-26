@@ -165,6 +165,13 @@ impl TorrentTask {
                 _ = update_interval.tick() => {
                     let _ = self.peer_manager.tick().await;
 
+                    // Periodically refill request pipeline for unchoked peers.
+                    // This avoids stalls when peers silently drop some requests.
+                    let refill_peers: Vec<_> = self.peer_unchoked.iter().copied().collect();
+                    for addr in refill_peers {
+                        self.pick_and_request(addr).await;
+                    }
+
                     let num_seeds = if let Some(pm) = &self.piece_manager {
                         self.peer_bitfields.values()
                             .filter(|bf| pm.is_full_bitfield(bf))
